@@ -1,30 +1,28 @@
-# Database Architecture & Schema Specification
+# Đặc tả Cơ sở Dữ liệu & Lược đồ Quan hệ (Database Architecture)
 
-> **Engine**: MySQL 8.0 (InnoDB)  
-> **Character Set**: `utf8mb4` | **Collation**: `utf8mb4_unicode_ci`  
-> **Migration Tool**: Flyway  
-> **Application Context**: E-Commerce Backend System (Modular Monolith)
-
----
-
-## 1. Overview & Design Principles
-
-The database follows strict relational normalization principles (3NF), ensuring ACID guarantees, data integrity, and performant index lookups. All schema definition and structural changes are governed solely via **Flyway migrations**. Direct manual DDL changes or Hibernate auto-generation (`ddl-auto: update/create`) are strictly prohibited.
+> **Hệ quản trị CSDL**: MySQL 8.0 (InnoDB Engine)  
+> **Bộ mã ký tự**: `utf8mb4` | **Collation**: `utf8mb4_unicode_ci`  
+> **Công cụ Quản lý Migration**: Flyway  
+> **Ngữ cảnh Ứng dụng**: Hệ thống Backend Thương mại Điện tử (Modular Monolith)
 
 ---
 
-## 2. Entity-Relationship Diagram (ERD)
+## 1. Tổng quan & Nguyên tắc Thiết kế CSDL
+
+Cơ sở dữ liệu được chuẩn hóa theo chuẩn 3NF, bảo đảm tính toàn vẹn dữ liệu quan hệ, tuân thủ nguyên tắc ACID và tối ưu hóa hiệu năng truy vấn thông qua hệ thống Index có chủ đích. Toàn bộ lược đồ bảng, ràng buộc khóa và dữ liệu hạt giống (seed data) được quản lý **duy nhất qua các file Flyway Migration**. Nghiêm cấm mọi hành vi chạy câu lệnh DDL thủ công ngoài môi trường hoặc để Hibernate tự động sinh cấu trúc (`ddl-auto: update/create`).
+
+---
+
+## 2. Sơ đồ Quan hệ Thực thể (ERD - Entity Relationship Diagram)
 
 ```mermaid
 erDiagram
-    Role ||--o{ UserRole : assigned_to
-    User ||--o{ UserRole : possesses
+    Role ||--o{ User : assigned_to
     User ||--o{ RefreshToken : owns
     User ||--o{ Order : places
     User ||--o{ Notification : receives
     User ||--o{ AuditLog : performs
 
-    Category ||--o{ Category : parent_of
     Category ||--o{ Product : categorizes
     Product ||--o{ ProductImage : displays
     Product ||--o{ ProductTag : categorized_under
@@ -36,68 +34,60 @@ erDiagram
 
     User {
         bigint id PK
+        bigint role_id FK
+        varchar username UK
         varchar email UK
-        varchar password_hash
-        varchar first_name
-        varchar last_name
-        varchar phone
-        varchar status
-        boolean is_deleted
+        varchar password
+        boolean enabled
         datetime created_at
+        datetime updated_at
     }
 
     Role {
         bigint id PK
         varchar name UK
-        varchar description
+        datetime created_at
     }
 
     RefreshToken {
         bigint id PK
         bigint user_id FK
         varchar token UK
-        datetime expires_at
-        boolean is_revoked
+        datetime expiry_date
+        boolean revoked
         datetime created_at
     }
 
     Category {
         bigint id PK
-        bigint parent_id FK
-        varchar name
-        varchar slug UK
-        varchar description
-        boolean is_active
-        boolean is_deleted
+        varchar name UK
+        text description
+        datetime created_at
     }
 
     Product {
         bigint id PK
         bigint category_id FK
         varchar name
-        varchar slug UK
-        varchar sku UK
         text description
-        decimal base_price
-        decimal sale_price
-        int stock
+        decimal price
+        int stock_quantity
         varchar status
-        bigint version
-        boolean is_deleted
+        varchar image_url
+        datetime created_at
+        datetime updated_at
     }
 
     ProductImage {
         bigint id PK
         bigint product_id FK
-        varchar image_url
-        int display_order
+        varchar url
         boolean is_primary
     }
 
     Tag {
         bigint id PK
         varchar name UK
-        varchar slug UK
     }
 
     ProductTag {
@@ -108,48 +98,38 @@ erDiagram
     Order {
         bigint id PK
         bigint user_id FK
-        varchar order_number UK
-        varchar status
-        decimal subtotal
-        decimal shipping_fee
-        decimal tax_amount
-        decimal discount_amount
         decimal total_amount
-        varchar shipping_address
-        varchar payment_method
+        varchar status
         varchar payment_status
-        datetime created_at
+        datetime order_date
+        datetime updated_at
     }
 
     OrderItem {
         bigint id PK
         bigint order_id FK
         bigint product_id FK
-        varchar product_name
-        varchar sku
-        decimal unit_price
         int quantity
+        decimal unit_price
         decimal subtotal
     }
 
     Shipment {
         bigint id PK
         bigint order_id UK,FK
-        varchar tracking_code UK
-        varchar carrier_name
+        varchar tracking_number
+        varchar carrier
         varchar status
-        datetime estimated_delivery_date
-        datetime shipped_at
-        datetime delivered_at
+        datetime last_sync_time
+        datetime created_at
     }
 
     Notification {
         bigint id PK
         bigint user_id FK
         varchar title
-        text content
-        varchar type
-        varchar status
+        text message
+        boolean is_read
         datetime created_at
     }
 
@@ -157,246 +137,186 @@ erDiagram
         bigint id PK
         bigint user_id FK
         varchar action
-        varchar entity_name
-        varchar entity_id
-        text details
-        varchar ip_address
+        varchar entity
+        bigint entity_id
         datetime created_at
     }
 ```
 
 ---
 
-## 3. Table Responsibilities & Detailed Schema
+## 3. Trách nhiệm Từng Bảng & Cấu trúc Chi tiết (Schema Detail)
 
-### 3.1 `roles`
-Stores access roles for Role-Based Access Control (RBAC).
-- `id` (BIGINT, PK, AUTO_INCREMENT): Unique role identifier.
-- `name` (VARCHAR(50), NOT NULL, UNIQUE): Unique role authority name (e.g., `ROLE_CUSTOMER`, `ROLE_ADMIN`, `ROLE_STAFF`).
-- `description` (VARCHAR(255), NULL): Explanation of role responsibilities.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
+### 3.1 Bảng `roles` (Vai trò Người dùng)
+Lưu trữ các nhóm quyền hạn truy cập của hệ thống (phục vụ RBAC).
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính định danh vai trò.
+- `name` (VARCHAR(50), NOT NULL, UNIQUE): Tên quyền duy nhất (`ROLE_CUSTOMER`, `ROLE_ADMIN`, `ROLE_STAFF`).
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm khởi tạo vai trò.
 
-### 3.2 `users`
-Core customer and administrative identity table.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Unique user identifier.
-- `email` (VARCHAR(150), NOT NULL, UNIQUE): User login email.
-- `password_hash` (VARCHAR(255), NOT NULL): BCrypt hashed password (never plaintext).
-- `first_name` (VARCHAR(100), NOT NULL): First name.
-- `last_name` (VARCHAR(100), NOT NULL): Last name.
-- `phone` (VARCHAR(20), NULL): Contact phone number.
-- `status` (VARCHAR(30), NOT NULL, DEFAULT 'ACTIVE'): Status (`ACTIVE`, `SUSPENDED`, `LOCKED`).
-- `is_deleted` (BOOLEAN, NOT NULL, DEFAULT FALSE): Soft-delete flag.
-- `deleted_at` (DATETIME, NULL): Timestamp when marked deleted.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
-- `updated_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP).
+### 3.2 Bảng `users` (Tài khoản Người dùng)
+Lưu trữ danh tính khách hàng và nhân viên quản trị.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính định danh người dùng.
+- `role_id` (BIGINT, NOT NULL, FK -> `roles.id` ON DELETE RESTRICT): Vai trò phân quyền của người dùng.
+- `username` (VARCHAR(100), NOT NULL, UNIQUE): Tên đăng nhập duy nhất.
+- `email` (VARCHAR(255), NOT NULL, UNIQUE): Địa chỉ email đăng nhập duy nhất.
+- `password` (VARCHAR(255), NOT NULL): Mật khẩu đã băm bằng thuật toán BCrypt (tuyệt đối không lưu plaintext).
+- `enabled` (TINYINT(1), DEFAULT 1): Cờ kích hoạt tài khoản (1: Đang hoạt động, 0: Bị khóa).
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm tạo tài khoản.
+- `updated_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP): Thời điểm cập nhật hồ sơ gần nhất.
 
-### 3.3 `user_roles`
-Join table establishing Many-to-Many mapping between users and roles.
-- `user_id` (BIGINT, NOT NULL, FK -> `users.id` ON DELETE CASCADE).
-- `role_id` (BIGINT, NOT NULL, FK -> `roles.id` ON DELETE RESTRICT).
-- **PRIMARY KEY** (`user_id`, `role_id`).
+### 3.3 Bảng `refresh_tokens` (Mã Làm mới Phiên Đăng nhập)
+Lưu trữ token làm mới phiên đăng nhập JWT, hỗ trợ xoay vòng bảo mật (RTR).
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính định danh token.
+- `user_id` (BIGINT, NOT NULL, FK -> `users.id` ON DELETE CASCADE): Người dùng sở hữu token.
+- `token` (VARCHAR(500), NOT NULL, UNIQUE): Chuỗi mã token ngẫu nhiên bảo mật dạng UUID.
+- `expiry_date` (DATETIME, NOT NULL): Thời hạn hết hiệu lực của token (7 ngày).
+- `revoked` (TINYINT(1), DEFAULT 0): Cờ đánh dấu đã bị thu hồi (1: Đã thu hồi / vô hiệu, 0: Hợp lệ).
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm phát hành token.
 
-### 3.4 `refresh_tokens`
-Tracks active long-lived JWT refresh tokens for secure session rotation.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Identifier.
-- `user_id` (BIGINT, NOT NULL, FK -> `users.id` ON DELETE CASCADE): Token owner.
-- `token` (VARCHAR(255), NOT NULL, UNIQUE): Cryptographically secure random UUID token string.
-- `expires_at` (DATETIME, NOT NULL): Expiration boundary (e.g. 7 days).
-- `is_revoked` (BOOLEAN, NOT NULL, DEFAULT FALSE): Revocation status.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
+### 3.4 Bảng `categories` (Danh mục Sản phẩm)
+Phân loại các nhóm sản phẩm trong sàn thương mại điện tử.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính định danh danh mục.
+- `name` (VARCHAR(100), NOT NULL, UNIQUE): Tên danh mục duy nhất.
+- `description` (TEXT, NULL): Mô tả chi tiết về danh mục.
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm tạo danh mục.
 
-### 3.5 `categories`
-Hierarchical product classification supporting infinite nested subcategories.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Category ID.
-- `parent_id` (BIGINT, NULL, FK -> `categories.id` ON DELETE RESTRICT): Self-referencing parent node for subcategories.
-- `name` (VARCHAR(100), NOT NULL): Category name.
-- `slug` (VARCHAR(120), NOT NULL, UNIQUE): URL-friendly unique slug.
-- `description` (VARCHAR(500), NULL): Detailed category overview.
-- `is_active` (BOOLEAN, NOT NULL, DEFAULT TRUE): Display visibility flag.
-- `is_deleted` (BOOLEAN, NOT NULL, DEFAULT FALSE): Soft-delete flag.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
-- `updated_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP).
+### 3.5 Bảng `products` (Sản phẩm Bày bán)
+Lưu trữ thông tin chi tiết và số lượng tồn kho của từng sản phẩm.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính định danh sản phẩm.
+- `category_id` (BIGINT, NOT NULL, FK -> `categories.id` ON DELETE RESTRICT): Danh mục chứa sản phẩm.
+- `name` (VARCHAR(255), NOT NULL): Tên hiển thị của sản phẩm.
+- `description` (TEXT, NULL): Bài viết mô tả chi tiết sản phẩm.
+- `price` (DECIMAL(12,2), NOT NULL): Giá bán hiện tại của sản phẩm (`price > 0`).
+- `stock_quantity` (INT, NOT NULL, DEFAULT 0): Số lượng tồn kho hiện tại (`stock_quantity >= 0`).
+- `status` (VARCHAR(30), NOT NULL): Trạng thái sản phẩm (`ACTIVE`, `INACTIVE`, `OUT_OF_STOCK`).
+- `image_url` (VARCHAR(500), NULL): Đường dẫn ảnh đại diện chính của sản phẩm.
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm tạo sản phẩm.
+- `updated_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP): Thời điểm cập nhật giá/tồn kho gần nhất.
 
-### 3.6 `products`
-The core catalog item table with concurrency support and inventory tracking.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Product ID.
-- `category_id` (BIGINT, NOT NULL, FK -> `categories.id` ON DELETE RESTRICT): Primary category.
-- `name` (VARCHAR(200), NOT NULL): Product display name.
-- `slug` (VARCHAR(220), NOT NULL, UNIQUE): Unique slug for SEO routing.
-- `sku` (VARCHAR(100), NOT NULL, UNIQUE): Stock Keeping Unit identifier.
-- `description` (TEXT, NULL): Full markdown/HTML product description.
-- `base_price` (DECIMAL(12,2), NOT NULL): Base retail price (`base_price > 0`).
-- `sale_price` (DECIMAL(12,2), NULL): Optional promotional price (`sale_price < base_price`).
-- `stock` (INT, NOT NULL, DEFAULT 0): Available stock quantity (`stock >= 0`).
-- `status` (VARCHAR(30), NOT NULL, DEFAULT 'DRAFT'): Product status (`DRAFT`, `ACTIVE`, `INACTIVE`, `ARCHIVED`).
-- `version` (BIGINT, NOT NULL, DEFAULT 0): Optimistic locking version for concurrent updates.
-- `is_deleted` (BOOLEAN, NOT NULL, DEFAULT FALSE): Soft-delete flag.
-- `deleted_at` (DATETIME, NULL): Soft-delete timestamp.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
-- `updated_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP).
+### 3.6 Bảng `product_images` (Thư viện Ảnh Sản phẩm)
+Lưu trữ danh sách các hình ảnh chi tiết của sản phẩm.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính ảnh.
+- `product_id` (BIGINT, NOT NULL, FK -> `products.id` ON DELETE CASCADE): Sản phẩm sở hữu ảnh.
+- `url` (VARCHAR(500), NOT NULL): Đường dẫn CDN/URL của hình ảnh.
+- `is_primary` (TINYINT(1), DEFAULT 0): Cờ đánh dấu ảnh chính đại diện (1: Ảnh chính, 0: Ảnh phụ).
 
-### 3.7 `product_images`
-Images associated with a product.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Image ID.
-- `product_id` (BIGINT, NOT NULL, FK -> `products.id` ON DELETE CASCADE): Associated product.
-- `image_url` (VARCHAR(500), NOT NULL): CDN/S3 URL for the image asset.
-- `display_order` (INT, NOT NULL, DEFAULT 0): Visual sorting position.
-- `is_primary` (BOOLEAN, NOT NULL, DEFAULT FALSE): Flag indicating main thumbnail image.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
+### 3.7 Bảng `tags` (Nhãn Gắn Sản phẩm)
+Lưu trữ các từ khóa/nhãn hỗ trợ tìm kiếm sản phẩm (ví dụ: "Hot", "Sale", "Mới").
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính tag.
+- `name` (VARCHAR(50), NOT NULL, UNIQUE): Tên nhãn duy nhất.
 
-### 3.8 `tags`
-Categorization labels for filtering (e.g., "Trending", "Summer", "Sale").
-- `id` (BIGINT, PK, AUTO_INCREMENT): Tag ID.
-- `name` (VARCHAR(50), NOT NULL, UNIQUE): Tag name.
-- `slug` (VARCHAR(60), NOT NULL, UNIQUE): Tag slug.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
-
-### 3.9 `product_tags`
-Join table establishing Many-to-Many mapping between products and tags.
+### 3.8 Bảng `product_tags` (Bảng Liên kết Sản phẩm - Tag)
+Bảng trung gian thể hiện mối quan hệ Many-to-Many giữa Sản phẩm và Tag.
 - `product_id` (BIGINT, NOT NULL, FK -> `products.id` ON DELETE CASCADE).
 - `tag_id` (BIGINT, NOT NULL, FK -> `tags.id` ON DELETE CASCADE).
 - **PRIMARY KEY** (`product_id`, `tag_id`).
 
-### 3.10 `orders`
-The master order entity capturing transaction header details and lifecycle states.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Internal order ID.
-- `user_id` (BIGINT, NOT NULL, FK -> `users.id` ON DELETE RESTRICT): Ordering user.
-- `order_number` (VARCHAR(50), NOT NULL, UNIQUE): Human-readable public identifier (e.g. `ORD-20261002-12345`).
-- `status` (VARCHAR(30), NOT NULL, DEFAULT 'PENDING'): Lifecycle status (`PENDING`, `CONFIRMED`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `REFUNDED`).
-- `subtotal` (DECIMAL(12,2), NOT NULL): Sum of item snapshots.
-- `shipping_fee` (DECIMAL(12,2), NOT NULL, DEFAULT 0.00): Shipping cost.
-- `tax_amount` (DECIMAL(12,2), NOT NULL, DEFAULT 0.00): Tax amount.
-- `discount_amount` (DECIMAL(12,2), NOT NULL, DEFAULT 0.00): Discount coupon reductions.
-- `total_amount` (DECIMAL(12,2), NOT NULL): Final payable total (`subtotal + shipping_fee + tax_amount - discount_amount`).
-- `shipping_address` (VARCHAR(500), NOT NULL): Delivery address snapshot.
-- `payment_method` (VARCHAR(50), NOT NULL): Payment gateway / method (`COD`, `CREDIT_CARD`, `BANK_TRANSFER`).
-- `payment_status` (VARCHAR(30), NOT NULL, DEFAULT 'PENDING'): Payment state (`PENDING`, `PAID`, `FAILED`, `REFUNDED`).
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
-- `updated_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP).
+### 3.9 Bảng `orders` (Đơn đặt hàng)
+Lưu trữ thông tin tổng quát của giao dịch đặt hàng.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính đơn hàng.
+- `user_id` (BIGINT, NOT NULL, FK -> `users.id` ON DELETE RESTRICT): Khách hàng đặt mua.
+- `total_amount` (DECIMAL(12,2), NOT NULL): Tổng số tiền thanh toán của đơn hàng.
+- `status` (VARCHAR(50), NOT NULL): Trạng thái vòng đời đơn hàng (`PENDING`, `CONFIRMED`, `PROCESSING`, `SHIPPED`, `COMPLETED`, `CANCELLED`).
+- `payment_status` (VARCHAR(50), NOT NULL): Trạng thái thanh toán (`UNPAID`, `PAID`, `FAILED`, `REFUNDED`).
+- `order_date` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm khách đặt mua đơn hàng.
+- `updated_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP): Thời điểm cập nhật tiến độ đơn hàng gần nhất.
 
-### 3.11 `order_items`
-Immutable line-item snapshots preserved at checkout time.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Order item ID.
-- `order_id` (BIGINT, NOT NULL, FK -> `orders.id` ON DELETE CASCADE): Parent order.
-- `product_id` (BIGINT, NOT NULL, FK -> `products.id` ON DELETE RESTRICT): Original product reference.
-- `product_name` (VARCHAR(200), NOT NULL): Frozen snapshot of product name.
-- `sku` (VARCHAR(100), NOT NULL): Frozen snapshot of SKU.
-- `unit_price` (DECIMAL(12,2), NOT NULL): Frozen snapshot of product price at purchase.
-- `quantity` (INT, NOT NULL): Number of units purchased (`quantity > 0`).
-- `subtotal` (DECIMAL(12,2), NOT NULL): Line total (`unit_price * quantity`).
+### 3.10 Bảng `order_items` (Chi tiết Mục Đơn hàng Snapshot)
+Lưu trữ snapshot đóng băng giá và thông tin mục mua tại thời điểm đặt hàng.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính dòng sản phẩm trong đơn.
+- `order_id` (BIGINT, NOT NULL, FK -> `orders.id` ON DELETE CASCADE): Đơn hàng sở hữu.
+- `product_id` (BIGINT, NOT NULL, FK -> `products.id` ON DELETE RESTRICT): Sản phẩm được mua.
+- `quantity` (INT, NOT NULL): Số lượng mua (`quantity > 0`).
+- `unit_price` (DECIMAL(12,2), NOT NULL): Giá bán snapshot đóng băng tại thời điểm đặt hàng.
+- `subtotal` (DECIMAL(12,2), NOT NULL): Thành tiền của dòng (`unit_price * quantity`).
 
-### 3.12 `shipments`
-Logistics fulfillment tracking mapped 1:1 to orders.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Shipment ID.
-- `order_id` (BIGINT, NOT NULL, UNIQUE, FK -> `orders.id` ON DELETE RESTRICT): Fulfilled order.
-- `tracking_code` (VARCHAR(100), NOT NULL, UNIQUE): Carrier-issued tracking number.
-- `carrier_name` (VARCHAR(100), NOT NULL): Logistics carrier (e.g., ViettelPost, DHL, FedEx).
-- `status` (VARCHAR(30), NOT NULL, DEFAULT 'LABEL_CREATED'): Logistics status (`LABEL_CREATED`, `PICKED_UP`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `RETURNED`).
-- `estimated_delivery_date` (DATETIME, NULL): Estimated arrival date.
-- `shipped_at` (DATETIME, NULL): Dispatch timestamp.
-- `delivered_at` (DATETIME, NULL): Delivery timestamp.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
-- `updated_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP).
+### 3.11 Bảng `shipments` (Thông tin Vận chuyển Đơn hàng)
+Lưu trữ dữ liệu kết nối hãng giao vận, có quan hệ 1:1 với đơn hàng.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính vận đơn.
+- `order_id` (BIGINT, NOT NULL, UNIQUE, FK -> `orders.id` ON DELETE RESTRICT): Đơn hàng được vận chuyển.
+- `tracking_number` (VARCHAR(100), NULL): Mã theo dõi vận đơn từ đối tác vận chuyển.
+- `carrier` (VARCHAR(100), NULL): Tên đơn vị vận chuyển (ViettelPost, DHL, GHTK,...).
+- `status` (VARCHAR(50), NULL): Trạng thái giao vận (`LABEL_CREATED`, `PICKED_UP`, `IN_TRANSIT`, `DELIVERED`,...).
+- `last_sync_time` (DATETIME, NULL): Lần cuối cùng đồng bộ dữ liệu với hệ thống giao vận.
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm tạo yêu cầu giao vận.
 
-### 3.13 `notifications`
-User alert inbox and messaging log.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Notification ID.
-- `user_id` (BIGINT, NOT NULL, FK -> `users.id` ON DELETE CASCADE): Recipient user.
-- `title` (VARCHAR(200), NOT NULL): Alert headline.
-- `content` (TEXT, NOT NULL): Full notification message body.
-- `type` (VARCHAR(50), NOT NULL): Notification category (`ORDER_STATUS`, `PAYMENT`, `SYSTEM`, `PROMOTION`).
-- `status` (VARCHAR(20), NOT NULL, DEFAULT 'UNREAD'): Read status (`UNREAD`, `READ`).
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
+### 3.12 Bảng `notifications` (Hộp thư Thông báo Người dùng)
+Lưu trữ các thông báo đẩy, cập nhật trạng thái đơn hàng gửi đến tài khoản người dùng.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính thông báo.
+- `user_id` (BIGINT, NOT NULL, FK -> `users.id` ON DELETE CASCADE): Người dùng nhận thông báo.
+- `title` (VARCHAR(255), NOT NULL): Tiêu đề thông báo.
+- `message` (TEXT, NOT NULL): Nội dung chi tiết thông báo.
+- `is_read` (TINYINT(1), DEFAULT 0): Trạng thái đã đọc (1: Đã đọc, 0: Chưa đọc).
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm phát sinh thông báo.
 
-### 3.14 `audit_logs`
-Immutable compliance and activity record.
-- `id` (BIGINT, PK, AUTO_INCREMENT): Audit record ID.
-- `user_id` (BIGINT, NULL, FK -> `users.id` ON DELETE SET NULL): User who initiated the action (NULL for system events).
-- `action` (VARCHAR(100), NOT NULL): Action executed (e.g. `ORDER_CANCELLED`, `PRODUCT_UPDATED`).
-- `entity_name` (VARCHAR(100), NOT NULL): Target entity class (e.g. `Order`, `Product`).
-- `entity_id` (VARCHAR(100), NOT NULL): Primary key of target entity.
-- `details` (TEXT, NULL): JSON payload of old vs new values or event metadata.
-- `ip_address` (VARCHAR(45), NULL): Client IP address.
-- `created_at` (DATETIME, NOT NULL, DEFAULT CURRENT_TIMESTAMP).
+### 3.13 Bảng `audit_logs` (Nhật ký Kiểm toán Hệ thống)
+Lưu trữ các thao tác quản trị và thay đổi trạng thái quan trọng phục vụ tra cứu tuân thủ.
+- `id` (BIGINT, PK, AUTO_INCREMENT): Khóa chính nhật ký.
+- `user_id` (BIGINT, NULL, FK -> `users.id` ON DELETE SET NULL): Người dùng thực hiện thao tác (NULL nếu do hệ thống tự động).
+- `action` (VARCHAR(100), NOT NULL): Hành động được thực hiện (ví dụ: `ORDER_CANCELLED`, `STOCK_ADJUSTED`).
+- `entity` (VARCHAR(100), NOT NULL): Tên thực thể bị tác động (`Order`, `Product`,...).
+- `entity_id` (BIGINT, NULL): Khóa chính của bản ghi bị tác động.
+- `created_at` (DATETIME, DEFAULT CURRENT_TIMESTAMP): Thời điểm ghi nhận hành động.
 
 ---
 
-## 4. Key Constraints & Referential Integrity Rules
+## 4. Ràng buộc Toàn vẹn Khóa ngoại (Referential Integrity Constraints)
 
-1. **Foreign Key Integrity**:
-   - `ON DELETE RESTRICT` is enforced for structural business links (`categories -> products`, `users -> orders`, `products -> order_items`). This prevents catastrophic cascading data loss if an entity is deleted.
-   - `ON DELETE CASCADE` is only permitted for tightly bound child aggregates that have no independent existence (`products -> product_images`, `orders -> order_items`, `users -> refresh_tokens`).
-2. **Business Check Constraints**:
-   - `products`: `CONSTRAINT chk_product_price CHECK (base_price > 0)`
-   - `products`: `CONSTRAINT chk_product_sale_price CHECK (sale_price IS NULL OR sale_price < base_price)`
-   - `products`: `CONSTRAINT chk_product_stock CHECK (stock >= 0)`
-   - `order_items`: `CONSTRAINT chk_order_item_qty CHECK (quantity > 0)`
-   - `orders`: `CONSTRAINT chk_order_total CHECK (total_amount >= 0)`
-3. **Uniqueness Enforcements**:
-   - `users.email`
-   - `categories.slug`
-   - `products.sku`, `products.slug`
-   - `orders.order_number`
-   - `shipments.tracking_code`, `shipments.order_id` (1:1 constraint)
-   - `refresh_tokens.token`
+1. **Chính sách `ON DELETE RESTRICT` (Ngăn chặn Xóa Dữ liệu Gốc)**:
+   - Áp dụng trên các quan hệ cấu trúc cốt lõi: `categories -> products`, `users -> orders`, `products -> order_items`, `roles -> users`.
+   - Ngăn chặn triệt để hành vi xóa một danh mục khi vẫn còn sản phẩm đang thuộc danh mục đó, hoặc xóa tài khoản khách hàng khi đã phát sinh đơn hàng lịch sử.
+2. **Chính sách `ON DELETE CASCADE` (Xóa Đồng bộ theo Thực thể Cha)**:
+   - Chỉ áp dụng đối với các thực thể con phụ thuộc hoàn toàn vào thực thể cha và không có ý nghĩa khi đứng một mình:
+     - `products -> product_images`: Xóa sản phẩm thì ảnh của nó tự động bị xóa.
+     - `products -> product_tags`: Xóa sản phẩm thì liên kết tag bị xóa.
+     - `orders -> order_items`: Xóa đơn hàng thì các item snapshot trong đơn bị xóa.
+     - `users -> refresh_tokens`: Xóa người dùng thì toàn bộ phiên token liên quan bị xóa.
+     - `users -> notifications`: Xóa người dùng thì hộp thư thông báo bị xóa.
 
 ---
 
-## 5. Indexing Strategy
+## 5. Chiến lược Đánh Chỉ mục (Indexing Strategy)
 
-To maintain sub-50ms query response times at scale, database indexes are strategically placed:
+Các chỉ mục Index đã được tạo lập trực tiếp trong cơ sở dữ liệu MySQL nhằm tối ưu thời gian phản hồi:
 
-| Table | Index Name | Columns | Type | Purpose |
+| Tên Bảng | Tên Index | Cột Được Index | Loại Index | Mục đích Tối ưu Truy vấn |
 |---|---|---|---|---|
-| `users` | `idx_users_email` | `email` | UNIQUE | Login credential lookup |
-| `users` | `idx_users_status_deleted` | `status`, `is_deleted` | B-TREE | Active user filtering |
-| `products` | `idx_products_sku` | `sku` | UNIQUE | Inventory & barcode scanning |
-| `products` | `idx_products_slug` | `slug` | UNIQUE | Direct storefront URL resolution |
-| `products` | `idx_products_cat_status_del` | `category_id`, `status`, `is_deleted` | COMPOSITE | Category catalog browsing |
-| `products` | `idx_products_price` | `base_price` | B-TREE | Price range filter (`minPrice`, `maxPrice`) |
-| `products` | `idx_products_created` | `created_at` | B-TREE | "Newest arrivals" sorting |
-| `orders` | `idx_orders_order_number` | `order_number` | UNIQUE | Customer order lookup |
-| `orders` | `idx_orders_user_created` | `user_id`, `created_at` | COMPOSITE | User order history pagination |
-| `orders` | `idx_orders_status_created` | `status`, `created_at` | COMPOSITE | Admin status filtering & fulfillment queue |
-| `order_items` | `idx_order_items_order_id` | `order_id` | B-TREE | Order line item join retrieval |
-| `order_items` | `idx_order_items_product_id` | `product_id` | B-TREE | Product order history analysis |
-| `shipments` | `idx_shipments_order_id` | `order_id` | UNIQUE | 1:1 Order lookup |
-| `shipments` | `idx_shipments_tracking` | `tracking_code` | UNIQUE | Webhook and tracking portal lookup |
-| `notifications`| `idx_notifications_user_status` | `user_id`, `status` | COMPOSITE | Unread notification badges & list |
-| `audit_logs` | `idx_audit_logs_entity` | `entity_name`, `entity_id` | COMPOSITE | Entity change history inspection |
+| `users` | `idx_users_email` | `email` | B-TREE (UNIQUE) | Tăng tốc độ xác thực khi người dùng đăng nhập bằng email |
+| `users` | `fk_users_roles` | `role_id` | B-TREE | Tăng tốc độ truy vấn phân quyền theo vai trò |
+| `refresh_tokens` | `idx_refresh_token_user`| `user_id` | B-TREE | Truy vấn danh sách token của người dùng khi thu hồi hoặc đăng xuất |
+| `products` | `idx_products_name` | `name` | B-TREE | Tìm kiếm sản phẩm theo tên |
+| `products` | `idx_products_category` | `category_id` | B-TREE | Lọc danh sách sản phẩm theo danh mục |
+| `products` | `idx_products_status` | `status` | B-TREE | Lọc nhanh các sản phẩm đang bày bán (`ACTIVE`) |
+| `product_images` | `idx_product_images_product` | `product_id` | B-TREE | Lấy danh sách ảnh khi xem chi tiết sản phẩm |
+| `orders` | `idx_orders_user` | `user_id` | B-TREE | Xem lịch sử đơn hàng của khách hàng theo tài khoản |
+| `orders` | `idx_orders_status` | `status` | B-TREE | Hỗ trợ admin lọc đơn hàng theo trạng thái xử lý |
+| `order_items` | `idx_order_items_order` | `order_id` | B-TREE | Lấy toàn bộ mục hàng trong một đơn hàng |
+| `order_items` | `fk_order_items_product` | `product_id` | B-TREE | Thống kê số lượng đơn hàng chứa một sản phẩm |
+| `shipments` | `order_id` | `order_id` | UNIQUE | Tra cứu thông tin vận đơn 1:1 từ mã đơn hàng |
+| `notifications` | `idx_notifications_user` | `user_id` | B-TREE | Tải danh sách thông báo trong hộp thư người dùng |
+| `audit_logs` | `fk_audit_user` | `user_id` | B-TREE | Tra cứu lịch sử thao tác theo người dùng |
 
 ---
 
-## 6. Soft Deletion & Audit Strategy
+## 6. Chính sách Xóa mềm (Soft Delete) & Kiểm toán (Auditing)
 
-### Soft Delete Rule
-Entities containing financial, inventory, or user records (`users`, `categories`, `products`) must **never be deleted with `DELETE FROM table`**.
-- When deleted via API, set `is_deleted = TRUE` and `deleted_at = CURRENT_TIMESTAMP`.
-- In JPA Entities, implement soft delete using Hibernate annotations:
-  - `@SQLDelete(sql = "UPDATE products SET is_deleted = true, deleted_at = CURRENT_TIMESTAMP WHERE id = ?")`
-  - `@SQLRestriction("is_deleted = false")`
-- Referential links remain preserved: historical orders can still reference deleted products without foreign key violations.
+### Quy định Xóa mềm (Soft Delete)
+- **Tuyệt đối không xóa vật lý (`DELETE FROM`)** các bản ghi tài chính và lịch sử giao dịch (`orders`, `order_items`).
+- Đối với `products` và `categories`, ưu tiên sử dụng cờ trạng thái (`status = 'INACTIVE'` hoặc `is_deleted = true`) để bảo toàn tính toàn vẹn khóa ngoại khi có các đơn hàng cũ đang tham chiếu.
 
-### Audit Columns
-Every persistent business table extends `BaseAuditableEntity` providing:
-- `created_at`: Set on entity insert, immutable.
-- `updated_at`: Automatically updated on entity modification.
+### Cột Kiểm toán Tự động (Auditing Columns)
+- `created_at`: Ghi nhận thời điểm tạo mới bản ghi bằng `@CreatedDate` trong Spring Data JPA.
+- `updated_at`: Ghi nhận thời điểm cập nhật bản ghi gần nhất bằng `@LastModifiedDate` và thuộc tính `ON UPDATE CURRENT_TIMESTAMP` tại tầng MySQL.
 
 ---
 
-## 7. Migration Rules & Flyway Protocol
+## 7. Quy tắc Quản lý Migration với Flyway
 
-1. **File Location**:  
-   All migration scripts are stored in `src/main/resources/db/migration/`.
-2. **Naming Standard**:  
-   `V<Version>__<Description_in_snake_case>.sql` (note double underscore `__`).
-   - `V1__init_auth_and_user_schema.sql`
-   - `V2__init_product_catalog_schema.sql`
-   - `V3__init_order_and_audit_schema.sql`
-   - `V4__init_notification_schema.sql`
-   - `V5__init_shipment_schema.sql`
-3. **Strict Rules**:
-   - **Never alter a migration file that has been committed or run in any environment.** Flyway computes a SHA-256 checksum; any mismatch will abort startup.
-   - Any bug fixes or schema changes must be added as a **new version** (e.g., `V6__add_avatar_url_to_users.sql`).
-   - Every table creation script must explicitly specify `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`.
-   - Seed data for testing should be kept separate from structural schema migrations.
+1. **Vị trí Lưu trữ**: Mọi file migration đặt tại `src/main/resources/db/migration/`.
+2. **Quy ước Đặt tên File**:  
+   `V{PhiênBản}__{TênMôTảBằngSnakeCase}.sql` (sử dụng đúng 2 dấu gạch dưới `__`).
+   - Ví dụ: `V1__init_schema.sql`, `V2__seed_default_roles.sql`.
+3. **Quy tắc Bất biến**:
+   - Khi một file migration đã được áp dụng (checksum đã ghi vào bảng `flyway_schema_history`), **tuyệt đối không sửa đổi nội dung file đó**.
+   - Mọi chỉnh sửa cấu trúc bảng hoặc thêm cột phải tạo file migration mới với phiên bản tăng dần tiếp theo (ví dụ: `V3__add_discount_price_to_products.sql`).
+   - Tất cả câu lệnh `CREATE TABLE` trong file migration phải chỉ định rõ `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`.

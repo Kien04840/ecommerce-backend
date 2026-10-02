@@ -1,202 +1,221 @@
-# Architecture Documentation - E-Commerce Backend System
+# Tài liệu Kiến trúc Hệ thống (Architecture Documentation)
 
-> **Application**: E-Commerce Backend  
-> **Architecture Pattern**: Modular Monolith  
-> **Platform**: Java 21 | Spring Boot | Spring Data JPA | MySQL 8 | Redis | RabbitMQ  
-> **Root Package**: `com.ecommerce`
+> **Ứng dụng**: Hệ thống Backend Thương mại Điện tử (E-Commerce Backend System)  
+> **Phong cách Kiến trúc**: Modular Monolith (Monolith Hướng Module)  
+> **Nền tảng**: Java 21 | Spring Boot | Spring Data JPA | MySQL 8 | Redis | RabbitMQ  
+> **Package Gốc**: `com.ecommerce`
 
 ---
 
-## 1. Architectural Philosophy: The Modular Monolith
+## 1. Triết lý Kiến trúc: Modular Monolith (Monolith Hướng Module)
 
-The backend is built as a **Modular Monolith**. It consists of a single deployable artifact (JAR/container) with one shared relational database (MySQL 8), while enforcing strict physical and logical boundaries between domain modules.
+Hệ thống được thiết kế theo mô hình **Modular Monolith**. Ứng dụng được đóng gói và triển khai dưới dạng **một file thực thi Spring Boot duy nhất** (JAR / Docker container), kết nối với **một cơ sở dữ liệu quan hệ MySQL 8 duy nhất**, nhưng bên trong mã nguồn được phân chia ranh giới vật lý và logic nghiêm ngặt theo từng module nghiệp vụ (Feature-based).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        E-Commerce Spring Boot Application              │
+│                        Ứng dụng Spring Boot E-Commerce                 │
 │                                                                        │
 │   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐               │
-│   │  auth module │   │  user module │   │product module│               │
+│   │ Module auth  │   │ Module user  │   │Module product│               │
 │   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘               │
 │          │                  │                  │                       │
 │          ▼                  ▼                  ▼                       │
 │   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐               │
-│   │ order module │   │notification  │   │shipping mod. │               │
+│   │ Module order │   │notification  │   │shipping mod. │               │
 │   └──────┬───────┘   └──────▲───────┘   └──────▲───────┘               │
 │          │                  │                  │                       │
 │          └───────────┬──────┴──────────────────┘                       │
-│                      │ In-Process Events & RabbitMQ                    │
+│                      │ In-Process Service / RabbitMQ Event             │
 │                      ▼                                                 │
-│               common module (Security, Exceptions, DTOs, Utils)        │
+│             Module common (Bảo mật, Ngoại lệ, DTO Dùng chung, Tiện ích)│
 └───────────────────────┬─────────────────────────┬──────────────────────┘
                         │                         │
                         ▼                         ▼
             ┌──────────────────────┐    ┌──────────────────────┐
             │       MySQL 8        │    │     Redis Cache      │
-            │  (Single Database)   │    │  (In-Memory Store)   │
+            │  (Cơ sở Dữ liệu Chung│    │  (Bộ nhớ Đệm Tạm)    │
             └──────────────────────┘    └──────────────────────┘
 ```
 
-### Why Modular Monolith (and NOT Microservices)?
-1. **Zero Distributed Systems Overhead**: Avoids network serialization latency, two-phase commits, distributed tracing overhead, and complex service mesh configurations.
-2. **ACID Transactions**: Enables atomic transactional updates across critical business flows (e.g., placing an order and decrementing inventory) within a single database transaction.
-3. **Simplicity in Deployment & Operations**: One Docker container to deploy, monitor, and scale horizontally behind a standard reverse proxy or load balancer.
-4. **Strong Domain Boundaries**: Clear module separation allows future extraction into independent microservices if organizational scale demands it, without requiring premature distribution now.
+### Tại sao Chọn Modular Monolith thay vì Microservices?
+
+1. **Không bị Hao tổn Tài nguyên Hệ thống Phân tán (Zero Distributed Overhead)**:  
+   Loại bỏ hoàn toàn độ trễ tuần tự hóa mạng (network latency), không cần điều phối giao dịch hai pha phức tạp (Two-Phase Commit), không cần service mesh cồng kềnh hay giải pháp distributed tracing đắt đỏ.
+2. **Đảm bảo Tuyệt đối Tính toàn vẹn Giao dịch (ACID Transactions)**:  
+   Cho phép thực hiện các thao tác then chốt (như đặt hàng, trừ tồn kho sản phẩm, ghi nhận lịch sử) một cách nguyên tử trong cùng một database transaction.
+3. **Đơn giản hóa Vận hành & Triển khai**:  
+   Chỉ cần một container duy nhất để triển khai, giám sát và scale ngang phía sau Reverse Proxy / Load Balancer.
+4. **Phân định Domain Rõ ràng (Clear Domain Boundaries)**:  
+   Mỗi module quản lý một phạm vi nghiệp vụ riêng biệt. Nếu trong tương lai quy mô phát triển yêu cầu tách dịch vụ, việc trích xuất module thành microservice độc lập có thể thực hiện dễ dàng mà không làm xáo trộn kiến trúc tổng thể.
 
 ---
 
-## 2. Layer Responsibilities
+## 2. Nguyên tắc Tổ chức Package: Feature-based Module
 
-The system strictly enforces a layered architecture within each module:
+Hệ thống **tuyệt đối không** tổ chức theo kiểu truyền thống (Package-by-layer) nơi mà một package global gom toàn bộ `controllers`, `services`, `repositories`, `entities` của cả hệ thống lại với nhau. Cách làm đó phá vỡ tính đóng gói và gây phụ thuộc lẫn nhau không thể kiểm soát.
+
+Thay vào đó, hệ thống áp dụng nguyên tắc **Feature-based Packaging**:
+- **Mỗi module sở hữu toàn bộ domain của riêng mình**.
+- Trong mỗi module, các thành phần được phân tầng rõ ràng:
+  ```
+  module
+  ├── controller     # Tiếp nhận HTTP request của module
+  ├── dto            # Request và Response payload
+  ├── service        # Logic nghiệp vụ & Transaction boundary
+  ├── repository     # Truy vấn dữ liệu của module
+  └── entity         # Thực thể dữ liệu JPA thuộc quyền sở hữu của module
+  ```
+- **Tuyệt đối không tạo package global chứa toàn bộ entity/service/controller.**
+
+---
+
+## 3. Trách nhiệm Chi tiết của Từng Tầng (Layer Responsibilities)
+
+Hệ thống thực thi nghiêm ngặt mô hình 4 tầng trách nhiệm:
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│ 1. Controller Layer (Presentation & HTTP)              │
-│    - Endpoint Routing & HTTP Methods                   │
-│    - Request Validation (@Valid, @NotNull, etc.)        │
-│    - Wrapping responses into ApiResponse<T>            │
+│ 1. Tầng Controller (Trình bày & Giao thức HTTP)        │
+│    - Định tuyến Endpoint & HTTP Method                 │
+│    - Kiểm tra hợp lệ dữ liệu đầu vào (@Valid)          │
+│    - Đóng gói dữ liệu trả về trong ApiResponse<T>      │
 └───────────────────────────┬────────────────────────────┘
-                            │ Calls Service DTO / Command
+                            │ Gọi Service truyền DTO / Command
                             ▼
 ┌────────────────────────────────────────────────────────┐
-│ 2. Service Layer (Business Logic & Transactions)       │
-│    - Pure domain business rules & calculations         │
-│    - Transactional boundaries (@Transactional)         │
-│    - Coordination between repositories                 │
-│    - Event publishing (Spring ApplicationEvent / AMQP) │
-│    - Mapping Entities <-> DTOs                         │
+│ 2. Tầng Service (Nghiệp vụ Domain & Giao dịch)         │
+│    - Thực thi quy tắc nghiệp vụ & công thức tính toán  │
+│    - Quản lý ranh giới giao dịch (@Transactional)      │
+│    - Điều phối các Repository và phát hành sự kiện     │
+│    - Ánh xạ hai chiều giữa Entity và DTO               │
 └───────────────────────────┬────────────────────────────┘
-                            │ Queries / Saves Entities
+                            │ Truy vấn / Lưu Entity
                             ▼
 ┌────────────────────────────────────────────────────────┐
-│ 3. Repository Layer (Data Access & Persistence)        │
-│    - Spring Data JPA Interfaces                        │
-│    - JPQL queries with JOIN FETCH                      │
-│    - JPA Specifications for dynamic filtering          │
+│ 3. Tầng Repository (Truy cập Dữ liệu & Lưu trữ)        │
+│    - Interface Spring Data JPA                         │
+│    - Truy vấn JPQL tối ưu (JOIN FETCH, @EntityGraph)   │
+│    - JPA Specification cho tìm kiếm lọc động           │
 └───────────────────────────┬────────────────────────────┘
-                            │ Executes SQL via JDBC
+                            │ Thực thi SQL qua JDBC
                             ▼
 ┌────────────────────────────────────────────────────────┐
-│ 4. Database Layer (Relational Storage)                 │
-│    - MySQL 8 with InnoDB Engine                        │
-│    - Primary & Foreign Key Constraints                 │
-│    - Indexes & Constraints                             │
+│ 4. Tầng Database (Cơ sở Dữ liệu Quan hệ)               │
+│    - MySQL 8.0 sử dụng InnoDB Engine                   │
+│    - Ràng buộc Khóa chính, Khóa ngoại & Check          │
+│    - B-Tree & Composite Index tối ưu truy vấn          │
 └────────────────────────────────────────────────────────┘
 ```
 
-### Detailed Layer Duties
+### Bảng Phân định Trách nhiệm Từng Tầng
 
-| Layer | Permitted Actions | Strictly Prohibited Actions |
+| Tầng | Hành vi Được Phép | Hành vi Bị Nghiêm Cấm |
 |---|---|---|
-| **Controller Layer** | • Define HTTP endpoints (`@GetMapping`, `@PostMapping`, etc.)<br>• Validate incoming request payloads via `@Valid`<br>• Extract route/query parameters and authentication context<br>• Delegate execution immediately to Service layer<br>• Return `ResponseEntity<ApiResponse<T>>` | • Executing business rules or math calculations<br>• Directly querying or injecting JPA Repositories<br>• Handling database transactions (`@Transactional`)<br>• Accepting or returning raw JPA Entities |
-| **Service Layer** | • Enforce domain rules, invariants, and constraints<br>• Manage transaction boundaries (`@Transactional`)<br>• Coordinate multiple repositories or call other module services<br>• Publish domain events to Spring or RabbitMQ<br>• Convert Entities to DTOs and vice-versa | • Directly reading HTTP requests, headers, or servlets<br>• Emitting HTTP-specific exceptions (return domain exceptions instead)<br>• Leaking JPA entity references to the presentation layer |
-| **Repository Layer**| • Extending `JpaRepository<T, ID>` and `JpaSpecificationExecutor<T>`<br>• Defining derived queries and JPQL queries with explicit joins<br>• Performing database pagination and sorting | • Containing business logic or data transformations<br>• Directly communicating with external services or message queues |
-| **Database Layer**  | • Enforcing relational integrity via foreign keys and check constraints<br>• Fast indexing for frequent query filters<br>• Executing ACID transactions | • Triggering external procedures or unmanaged stored procedures |
+| **Tầng Controller** | • Định nghĩa endpoint HTTP (`@GetMapping`, `@PostMapping`,...)<br>• Xác thực tính hợp lệ dữ liệu bằng `@Valid`<br>• Trích xuất thông tin người dùng từ `SecurityContextHolder`<br>• Ủy quyền xử lý ngay cho tầng Service<br>• Trả về `ResponseEntity<ApiResponse<T>>` | • Viết logic tính toán nghiệp vụ hay công thức<br>• Gọi trực tiếp hoặc `@Autowired` Repository<br>• Mở transaction `@Transactional`<br>• Tiếp nhận hoặc trả về trực tiếp JPA Entity |
+| **Tầng Service** | • Thực thi các quy tắc nghiệp vụ, tính toán tiền, trừ tồn kho<br>• Quản lý ranh giới giao dịch `@Transactional`<br>• Gọi các Service công khai khác hoặc phát hành Domain Event<br>• Chuyển đổi dữ liệu giữa Entity và DTO | • Đọc trực tiếp HTTP Request, HttpServletRequest, Header<br>• Ném các ngoại lệ mang tính giao thức HTTP<br>• Để lộ tham chiếu JPA Entity ra tầng ngoài |
+| **Tầng Repository** | • Kế thừa `JpaRepository` và `JpaSpecificationExecutor`<br>• Khai báo các câu lệnh JPQL có liên kết `JOIN FETCH`<br>• Thực hiện phân trang và sắp xếp dữ liệu ở mức database | • Chứa logic xử lý nghiệp vụ hay tính toán domain<br>• Gửi tin nhắn ra hàng đợi hoặc gọi service bên ngoài |
+| **Tầng Database** | • Bảo đảm toàn vẹn dữ liệu quan hệ qua Foreign Key<br>• Tối ưu tốc độ tìm kiếm qua Index<br>• Thực thi giao dịch an toàn với tính chất ACID | • Chạy các Trigger hoặc Stored Procedure không được quản lý |
 
 ---
 
-## 3. Package Structure
+## 4. Cấu trúc Package Dự án (Package Structure)
 
-The project code is organized by **feature module** rather than by technical layer, keeping related components highly cohesive:
+Mã nguồn được tổ chức hoàn chỉnh dưới package `com.ecommerce`:
 
 ```
 com.ecommerce
-├── Application.java
+├── Application.java               # Điểm khởi chạy Spring Boot (@EnableJpaAuditing)
 │
-├── common                         # Cross-cutting foundational module
-│   ├── config                     # Web, Security, Redis, RabbitMQ config
-│   ├── exception                  # GlobalExceptionHandler, CustomExceptions, ErrorCodes
-│   ├── response                   # ApiResponse, PagedResponse, ErrorResponse
-│   ├── entity                     # BaseAuditableEntity, SoftDeletable
-│   └── util                       # DateTime, SecurityUtils, PaginationUtils
+├── common                         # Module nền tảng dùng chung
+│   ├── config                     # Cấu hình Web, JPA, Redis, RabbitMQ
+│   ├── entity                     # BaseEntity (@MappedSuperclass với auditing)
+│   ├── exception                  # GlobalExceptionHandler, Exception nghiệp vụ, ErrorCode
+│   ├── response                   # ApiResponse, PagedResponse, ApiErrorResponse
+│   ├── security                   # Security Filter Chain, JWT filter, Handler từ chối truy cập
+│   └── util                       # Tiện ích ngày giờ, trích xuất thông tin bảo mật
 │
-├── auth                           # Authentication & Authorization module
-│   ├── controller                 # AuthController
-│   ├── dto                        # LoginRequest, RegisterRequest, TokenResponse
+├── auth                           # Module Xác thực & Phân quyền
+│   ├── controller                 # AuthController (register, login, refresh, logout)
+│   ├── dto                        # LoginRequest, RegisterRequest, TokenResponse, RefreshRequest
 │   ├── entity                     # RefreshToken
 │   ├── repository                 # RefreshTokenRepository
-│   ├── security                   # JwtTokenProvider, JwtAuthenticationFilter, UserDetailsServiceImpl
-│   └── service                    # AuthService, RefreshTokenService
+│   └── service                    # AuthService, RefreshTokenService, JwtService
 │
-├── user                           # User & Role Management module
+├── user                           # Module Quản lý Người dùng & Vai trò
 │   ├── controller                 # UserController, AdminUserController
 │   ├── dto                        # UserResponse, UpdateProfileRequest, RoleDto
 │   ├── entity                     # User, Role
 │   ├── repository                 # UserRepository, RoleRepository
 │   └── service                    # UserService, RoleService
 │
-├── product                        # Product Catalog & Search module
+├── product                        # Module Danh mục Sản phẩm & Tìm kiếm
 │   ├── controller                 # ProductController, CategoryController
-│   ├── dto                        # ProductRequest, ProductResponse, CategoryDto, ProductFilterCriteria
-│   ├── entity                     # Product, Category, ProductImage, Tag, ProductTag
+│   ├── dto                        # ProductRequest, ProductResponse, CategoryDto, FilterCriteria
+│   ├── entity                     # Product, Category, ProductImage, Tag, ProductStatus
 │   ├── repository                 # ProductRepository, CategoryRepository, TagRepository
-│   ├── specification              # ProductSpecification (Dynamic JPQL filters)
-│   └── service                    # ProductService, CategoryService, ProductCacheService
+│   ├── service                    # ProductService, CategoryService, ProductCacheService
+│   └── specification              # ProductSpecification (Xây dựng Predicate lọc động)
 │
-├── order                          # Order & Checkout module
+├── order                          # Module Đơn hàng & Thanh toán
 │   ├── controller                 # OrderController, AdminOrderController
-│   ├── dto                        # CreateOrderRequest, OrderResponse, OrderItemDto, OrderStatusUpdateRequest
-│   ├── entity                     # Order, OrderItem
-│   ├── event                      # OrderCreatedEvent, OrderStatusChangedEvent
+│   ├── dto                        # CreateOrderRequest, OrderResponse, OrderItemDto
+│   ├── entity                     # Order, OrderItem, OrderStatus, PaymentStatus
 │   ├── repository                 # OrderRepository, OrderItemRepository
 │   └── service                    # OrderService, OrderCalculationService, OrderStateMachine
 │
-├── notification                   # Asynchronous Notifications module
-│   ├── consumer                   # NotificationRabbitListener (AMQP listener)
-│   ├── controller                 # NotificationController
+├── notification                   # Module Thông báo Bất đồng bộ
+│   ├── consumer                   # NotificationRabbitListener (Lắng nghe AMQP queue)
 │   ├── dto                        # NotificationResponse
 │   ├── entity                     # Notification
-│   ├── repository                 # NotificationRepository
-│   └── service                    # NotificationService, EmailSenderService (mock)
+│   ├── producer                   # NotificationMessageProducer
+│   └── service                    # NotificationService, EmailSenderService (mô phỏng)
 │
-└── shipping                       # External Logistics & Delivery module
-    ├── client                     # ExternalShippingCarrierClient (HTTP/Mock)
-    ├── controller                 # ShipmentController, ShippingWebhookController
+└── shipping                       # Module Giao vận & Tích hợp Đơn vị Vận chuyển
+    ├── client                     # ExternalShippingCarrierClient (HTTP Client / Mock)
     ├── dto                        # ShipmentResponse, CarrierWebhookPayload
     ├── entity                     # Shipment
-    ├── repository                 # ShipmentRepository
     └── service                    # ShippingService, ShippingSyncScheduler
 ```
 
 ---
 
-## 4. Request & Execution Flow
+## 5. Luồng Xử lý Request trong Hệ thống (Request Flow)
 
-### 4.1 Synchronous Flow: Controller → Service → Repository → Database
+### 5.1 Luồng Xử lý Đồng bộ: Controller → Service → Repository → Database
 
-The following diagram illustrates how a typical incoming request (e.g., creating an order or fetching product details) traverses the application layers:
+Sơ đồ trình bày chi tiết hành trình của một request (ví dụ: Tạo đơn hàng `POST /api/v1/orders`):
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as HTTP Client
+    actor Client as Client HTTP
     participant Sec as Spring Security Filter (JWT)
     participant Ctrl as OrderController
     participant Svc as OrderServiceImpl
     participant Repo as OrderRepository
-    participant DB as MySQL Database
+    participant DB as Cơ sở Dữ liệu MySQL
 
-    Client->>Sec: POST /api/v1/orders (Bearer JWT, OrderRequest)
-    Sec->>Sec: Validate JWT & Populate SecurityContext
-    Sec->>Ctrl: Forward Request
-    Ctrl->>Ctrl: Validate Request Body (@Valid)
+    Client->>Sec: POST /api/v1/orders (Bearer JWT, OrderRequest DTO)
+    Sec->>Sec: Xác thực chữ ký JWT & Thiết lập SecurityContext
+    Sec->>Ctrl: Chuyển tiếp Request đã xác thực
+    Ctrl->>Ctrl: Kiểm tra hợp lệ dữ liệu (@Valid)
     Ctrl->>Svc: createOrder(userId, requestDto)
-    Note over Svc: @Transactional boundary begins
-    Svc->>Svc: Validate business rules (stock, prices)
-    Svc->>Repo: save(Order entity with OrderItems)
-    Repo->>DB: INSERT into orders, order_items
-    DB-->>Repo: Saved entity records
-    Repo-->>Svc: Persisted Order entity
+    Note over Svc: Bắt đầu ranh giới @Transactional
+    Svc->>Svc: Kiểm tra nghiệp vụ (tồn kho, snapshot giá, tính tổng tiền)
+    Svc->>Repo: save(Order entity cùng danh sách OrderItem)
+    Repo->>DB: INSERT INTO orders, order_items
+    DB-->>Repo: Xác nhận bản ghi đã ghi xuống đĩa
+    Repo-->>Svc: Trả về đối tượng Order Entity đã lưu
     Note over Svc: Commit transaction
-    Svc->>Svc: Map Order entity to OrderResponse DTO
-    Svc-->>Ctrl: OrderResponse DTO
-    Ctrl->>Ctrl: Wrap in ApiResponse<OrderResponse>
-    Ctrl-->>Client: 201 Created (ApiResponse JSON)
+    Svc->>Svc: Ánh xạ Order Entity sang OrderResponse DTO
+    Svc-->>Ctrl: Trả về OrderResponse DTO
+    Ctrl->>Ctrl: Đóng gói vào ApiResponse<OrderResponse>
+    Ctrl-->>Client: Phản hồi 201 Created (JSON ApiResponse tiếng Việt)
 ```
 
-### 4.2 Asynchronous Flow: Domain Events & Queue Processing
+### 5.2 Luồng Xử lý Bất đồng bộ: Sự kiện Domain & Hàng đợi RabbitMQ
 
-When side effects are non-essential to the immediate HTTP response (such as sending user notifications or generating external logistics tracking codes), the Service layer publishes domain events to RabbitMQ:
+Khi có các tác vụ phụ phát sinh sau khi lưu trữ thành công (như gửi email, push notification, tạo vận đơn):
 
 ```mermaid
 sequenceDiagram
@@ -209,32 +228,32 @@ sequenceDiagram
     participant NotifSvc as NotificationServiceImpl
     participant DB as MySQL Database
 
-    OrderSvc->>OrderSvc: Commit Order Transaction
-    OrderSvc->>Publisher: Publish OrderCreatedEvent
-    Publisher->>Rabbit: Send to ecommerce.exchange (routingKey: order.created)
-    Rabbit->>Queue: Route message to queue
-    Queue->>Listener: Consume OrderCreatedEvent
+    OrderSvc->>OrderSvc: Commit Transaction Đơn hàng
+    OrderSvc->>Publisher: Phát hành OrderCreatedEvent (sau commit)
+    Publisher->>Rabbit: Gửi đến ecommerce.exchange (routingKey: order.created)
+    Rabbit->>Queue: Đẩy tin nhắn vào queue
+    Queue->>Listener: Consumer nhận OrderCreatedEvent
     Listener->>NotifSvc: processOrderNotification(event)
-    NotifSvc->>DB: INSERT into notifications (status: UNREAD)
-    NotifSvc->>NotifSvc: Dispatch external notification (Email/SMS/Push)
+    NotifSvc->>DB: INSERT INTO notifications (trạng thái: UNREAD)
+    NotifSvc->>NotifSvc: Gửi thông báo mô phỏng (Email/SMS)
 ```
 
 ---
 
-## 5. In-Process Module Boundaries & Cross-Module Rules
+## 6. Ranh giới Giữa các Module (Module Boundaries)
 
-To prevent the Modular Monolith from degenerating into a tightly coupled "big ball of mud", all developers and AI agents must abide by the following boundaries:
+Để đảm bảo hệ thống Modular Monolith không bị thoái hóa thành "Big Ball of Mud" (mớ bòng bong liên kết chặt chẽ), mọi lập trình viên và AI agent bắt buộc phải tuân theo các nguyên tắc ranh giới:
 
-1. **Repository Access Is Strictly Private**:
-   - Only `ProductService` may access `ProductRepository`.
-   - If `OrderService` needs to verify product pricing and stock, it **must invoke `ProductService`**, never `ProductRepository` directly.
-2. **Entity Isolation in Public APIs**:
-   - Public service methods that are accessible to other modules must accept and return immutable DTOs or domain records, not internal JPA Entities.
-3. **Decoupled Side Effects**:
-   - Order creation must not directly invoke `NotificationService` or `ShippingService` synchronously inside the order transaction.
-   - Use asynchronous RabbitMQ events or Spring `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)` to decouple secondary side effects.
-4. **No Cyclic Dependencies**:
-   - Dependencies between modules must form a Directed Acyclic Graph (DAG).
-   - `order` may depend on `product` and `user`.
-   - `product` **must never** depend on `order`.
-   - All modules depend on `common`. `common` depends on no module.
+1. **Quyền Truy cập Repository là Hoàn toàn Riêng tư**:
+   - Chỉ `ProductService` mới được phép truy cập `ProductRepository`.
+   - Khi `OrderService` cần kiểm tra tồn kho hoặc giá sản phẩm, nó **bắt buộc phải gọi qua `ProductService`**, tuyệt đối không được inject `ProductRepository`.
+2. **Cách ly Thực thể Khỏi API Công khai**:
+   - Các phương thức Service công khai dùng để giao tiếp liên module chỉ được nhận và trả về DTO hoặc Java record bất biến, không truyền Entity JPA.
+3. **Phân tách Tác vụ Phụ bằng Sự kiện**:
+   - Việc tạo đơn hàng không được gọi trực tiếp `NotificationService` hoặc `ShippingService` một cách đồng bộ trong cùng transaction của đơn hàng.
+   - Luôn sử dụng RabbitMQ event hoặc Spring `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)`.
+4. **Không Tạo Phụ thuộc Vòng (No Cyclic Dependencies)**:
+   - Sơ đồ phụ thuộc giữa các module phải là Đồ thị Có hướng Không chu trình (DAG).
+   - Module `order` có thể phụ thuộc vào `product` và `user`.
+   - Module `product` **tuyệt đối không** được phụ thuộc ngược lại vào `order`.
+   - Tất cả các module đều phụ thuộc vào `common`. Module `common` không phụ thuộc vào bất kỳ module nào khác.
