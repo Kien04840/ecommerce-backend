@@ -43,4 +43,12 @@ public class Tag {
     public Set<Product> getProducts() {
         return Collections.unmodifiableSet(products);
     }
+
+    public void addProduct(Product product) {
+        this.products.add(product);
+    }
+
+    public void removeProduct(Product product) {
+        this.products.remove(product);
+    }
 }

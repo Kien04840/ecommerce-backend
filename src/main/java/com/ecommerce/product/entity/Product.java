@@ -111,11 +111,11 @@ public class Product extends BaseEntity {
 
     public void addTag(Tag tag) {
         tags.add(tag);
-        tag.getProducts().add(this);
+        tag.addProduct(this);
     }
 
     public void removeTag(Tag tag) {
         tags.remove(tag);
-        tag.getProducts().remove(this);
+        tag.removeProduct(this);
     }
 }

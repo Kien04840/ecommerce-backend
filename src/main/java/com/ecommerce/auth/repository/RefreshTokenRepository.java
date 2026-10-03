@@ -1,7 +1,9 @@
 package com.ecommerce.auth.repository;
 
 import com.ecommerce.auth.entity.RefreshToken;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -27,6 +29,20 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
      * @return Optional chứa RefreshToken nếu tìm thấy
      */
     Optional<RefreshToken> findByToken(String token);
+
+    /**
+     * Tra cứu Refresh Token theo chuỗi giá trị và áp dụng khóa ghi Pessimistic Lock (SELECT ... FOR UPDATE).
+     *
+     * <p>Được sử dụng trong quy trình xoay vòng token (RTR) để ngăn chặn triệt để xung đột truy cập
+     * đồng thời (Race Condition) khi hai request cùng gửi một Refresh Token cùng một lúc.
+     * Nạp sẵn (fetch) thông tin User để kiểm tra trạng thái kích hoạt tài khoản.</p>
+     *
+     * @param token chuỗi mã token
+     * @return Optional chứa RefreshToken kèm User đã được khóa bản ghi
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM RefreshToken r JOIN FETCH r.user WHERE r.token = :token")
+    Optional<RefreshToken> findByTokenForUpdate(@Param("token") String token);
 
     /**
      * Tìm kiếm token hợp lệ và nạp sẵn (fetch) thông tin User liên kết.

@@ -44,10 +44,11 @@ class DtoValidationTest {
 
         Set<ConstraintViolation<RegisterRequest>> violations = validator.validate(request);
 
-        assertThat(violations).hasSize(4); // username blank, username size, invalid email, password size
+        assertThat(violations).hasSize(5); // username blank, username size, invalid email, password size, password pattern
         List<String> messages = violations.stream().map(ConstraintViolation::getMessage).toList();
         assertThat(messages).contains("Định dạng email không hợp lệ");
         assertThat(messages).contains("Mật khẩu phải có độ dài từ 8 đến 100 ký tự");
+        assertThat(messages).contains("Mật khẩu phải chứa ít nhất một chữ hoa, một chữ thường, một chữ số và một ký tự đặc biệt");
     }
 
     @Test
