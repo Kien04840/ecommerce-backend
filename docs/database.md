@@ -320,3 +320,130 @@ Các chỉ mục Index đã được tạo lập trực tiếp trong cơ sở d�
    - Khi một file migration đã được áp dụng (checksum đã ghi vào bảng `flyway_schema_history`), **tuyệt đối không sửa đổi nội dung file đó**.
    - Mọi chỉnh sửa cấu trúc bảng hoặc thêm cột phải tạo file migration mới với phiên bản tăng dần tiếp theo (ví dụ: `V3__add_discount_price_to_products.sql`).
    - Tất cả câu lệnh `CREATE TABLE` trong file migration phải chỉ định rõ `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`.
+
+---
+
+## 8. Đặc tả Tầng Repository Layer & Chiến lược Truy vấn (Repository Layer Specification)
+
+Tầng Repository là lớp duy nhất trong hệ thống được phép tương tác trực tiếp với cơ sở dữ liệu MySQL thông qua Spring Data JPA và Hibernate. Toàn bộ Repository được tổ chức theo Feature-based Package Structure dưới từng module tương ứng.
+
+### 8.1 Bảng Ánh xạ Thực thể và Repository (Entity - Repository Mapping)
+
+| Module | Thực thể (Entity) | Repository Interface | Package | Khóa chính |
+|---|---|---|---|---|
+| `user` | `User` | `UserRepository` | `com.ecommerce.user.repository` | `Long` |
+| `user` | `Role` | `RoleRepository` | `com.ecommerce.user.repository` | `Long` |
+| `auth` | `RefreshToken` | `RefreshTokenRepository` | `com.ecommerce.auth.repository` | `Long` |
+| `product` | `Category` | `CategoryRepository` | `com.ecommerce.product.repository` | `Long` |
+| `product` | `Product` | `ProductRepository` | `com.ecommerce.product.repository` | `Long` |
+| `product` | `ProductImage` | `ProductImageRepository` | `com.ecommerce.product.repository` | `Long` |
+| `product` | `Tag` | `TagRepository` | `com.ecommerce.product.repository` | `Long` |
+| `order` | `Order` | `OrderRepository` | `com.ecommerce.order.repository` | `Long` |
+| `order` | `OrderItem` | `OrderItemRepository` | `com.ecommerce.order.repository` | `Long` |
+| `notification` | `Notification` | `NotificationRepository` | `com.ecommerce.notification.repository` | `Long` |
+| `shipping` | `Shipment` | `ShipmentRepository` | `com.ecommerce.shipping.repository` | `Long` |
+
+### 8.2 Các Truy vấn Then chốt theo Từng Repository
+
+#### 1. `UserRepository`
+- `findByUsername(String username)`: Tìm người dùng theo tên đăng nhập.
+- `findByEmail(String email)`: Tìm người dùng theo địa chỉ email.
+- `existsByUsername(String username)` / `existsByEmail(String email)`: Kiểm tra trùng lặp khi đăng ký.
+- `findByUsernameWithRole(String username)`: Truy vấn người dùng nạp kèm vai trò (`JOIN FETCH u.role`) để phục vụ xác thực bảo mật Spring Security trong 1 query duy nhất.
+- `findWithRoleByEmail(String email)`: Truy vấn người dùng nạp kèm Role sử dụng `@EntityGraph(attributePaths = {"role"})`.
+- `findByEnabled(Boolean enabled, Pageable pageable)`: Lấy danh sách người dùng theo trạng thái kích hoạt có phân trang.
+
+#### 2. `RoleRepository`
+- `findByName(String name)`: Tìm vai trò theo tên mã định danh (ví dụ: `ROLE_CUSTOMER`, `ROLE_ADMIN`).
+- `existsByName(String name)`: Kiểm tra sự tồn tại của vai trò.
+
+#### 3. `RefreshTokenRepository`
+- `findByToken(String token)`: Tìm token trong database.
+- `findValidToken(String token)`: Tìm token hợp lệ chưa thu hồi, chưa hết hạn và nạp kèm thông tin User (`JOIN FETCH rt.user`).
+- `findByUserId(Long userId)`: Lấy danh sách token của người dùng.
+- `revokeAllUserTokens(Long userId)`: Đánh dấu thu hồi (`revoked = true`) toàn bộ token của người dùng bằng `@Modifying` query.
+- `deleteExpiredTokens(LocalDateTime now)`: Xóa các token đã quá hạn khỏi database để dọn dẹp dung lượng.
+
+#### 4. `CategoryRepository`
+- `findByName(String name)`: Tìm danh mục theo tên chính xác.
+- `existsByName(String name)`: Kiểm tra trùng tên danh mục khi tạo mới.
+- `findByNameContainingIgnoreCase(String name)`: Tìm kiếm danh mục theo từ khóa.
+
+#### 5. `ProductRepository`
+- `findByCategoryId(Long categoryId, Pageable pageable)`: Danh sách sản phẩm theo danh mục có phân trang.
+- `findByStatus(ProductStatus status, Pageable pageable)`: Danh sách sản phẩm theo trạng thái kinh doanh.
+- `findByNameContainingIgnoreCase(String name, Pageable pageable)`: Tìm kiếm nhanh theo tên sản phẩm có phân trang.
+- `findByIdWithDetails(Long id)`: Truy vấn chi tiết sản phẩm nạp trọn vẹn Category, danh sách Images và danh sách Tags bằng `@EntityGraph(attributePaths = {"category", "images", "tags"})`.
+- `searchAndFilterProducts(...)`: Lọc và tìm kiếm đa tiêu chí (keyword, categoryId, status, khoảng giá minPrice-maxPrice) kết hợp `JOIN FETCH p.category` và `countQuery` riêng biệt có phân trang.
+- `findStockQuantityById(Long id)`: Lấy riêng số lượng tồn kho của sản phẩm, tối ưu hiệu năng không cần nạp toàn bộ thực thể.
+
+#### 6. `ProductImageRepository`
+- `findByProductId(Long productId)`: Lấy danh sách hình ảnh của sản phẩm.
+- `findByProductIdOrderByIsPrimaryDesc(Long productId)`: Lấy ảnh sắp xếp ưu tiên ảnh chính lên đầu.
+- `findByProductIdAndIsPrimaryTrue(Long productId)`: Tìm ảnh chính duy nhất của sản phẩm.
+- `deleteByProductId(Long productId)`: Xóa nhanh toàn bộ ảnh của sản phẩm bằng `@Modifying` query.
+
+#### 7. `TagRepository`
+- `findByName(String name)`: Tìm thẻ theo tên.
+- `findByNameIn(Collection<String> names)`: Tìm danh sách thẻ theo danh sách tên.
+- `findByProductId(Long productId)`: Lấy các thẻ được gán cho một sản phẩm.
+
+#### 8. `OrderRepository`
+- `findByUserId(Long userId, Pageable pageable)`: Lấy lịch sử đơn hàng của người dùng có phân trang.
+- `findByStatus(OrderStatus status, Pageable pageable)`: Lấy đơn hàng theo trạng thái xử lý.
+- `findByUserIdWithUser(Long userId, Pageable pageable)`: Lấy đơn hàng của người dùng nạp kèm User (`JOIN FETCH o.user`) có phân trang.
+- `findAllWithUserByStatus(OrderStatus status, Pageable pageable)`: Danh sách đơn hàng nạp kèm User dành cho quản trị viên.
+- `findByIdWithDetails(Long orderId)`: Truy vấn chi tiết đơn hàng nạp trọn vẹn User, danh sách OrderItems và Product của từng item (`JOIN FETCH o.user LEFT JOIN FETCH o.orderItems oi LEFT JOIN FETCH oi.product`).
+- `existsByIdAndUserId(Long id, Long userId)`: Xác thực quyền sở hữu đơn hàng của khách hàng (Data Ownership Authorization).
+- `countByStatus(OrderStatus status)` / `countByUserIdAndStatus(Long userId, OrderStatus status)`: Đếm số lượng đơn hàng phục vụ dashboard thống kê.
+
+#### 9. `OrderItemRepository`
+- `findByOrderId(Long orderId)`: Lấy danh sách các mặt hàng trong đơn hàng.
+- `findByOrderIdWithProduct(Long orderId)`: Lấy danh sách mặt hàng nạp kèm thông tin Product (`JOIN FETCH oi.product`).
+- `existsByProductId(Long productId)`: Kiểm tra tính toàn vẹn nghiệp vụ, ngăn chặn xóa sản phẩm đã từng phát sinh đơn hàng.
+- `deleteByOrderId(Long orderId)`: Xóa các mặt hàng của đơn hàng.
+
+#### 10. `NotificationRepository`
+- `findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable)`: Lấy danh sách thông báo của người dùng sắp xếp mới nhất.
+- `findByUserIdAndIsReadOrderByCreatedAtDesc(...)`: Lấy thông báo theo trạng thái đã đọc/chưa đọc.
+- `countByUserIdAndIsReadFalse(Long userId)`: Đếm số lượng thông báo chưa đọc hiển thị badge icon trên UI.
+- `markAllAsReadByUserId(Long userId)`: Đánh dấu tất cả thông báo là đã đọc bằng câu lệnh UPDATE hàng loạt `@Modifying`.
+- `markAsReadByIdAndUserId(Long id, Long userId)`: Đánh dấu đã đọc một thông báo có kiểm tra quyền sở hữu.
+
+#### 11. `ShipmentRepository`
+- `findByOrderId(Long orderId)`: Tra cứu đơn vận chuyển từ mã đơn hàng.
+- `findByTrackingNumber(String trackingNumber)`: Tra cứu theo mã vận đơn của đơn vị giao hàng.
+- `findByIdWithOrderAndUser(Long id)` / `findByOrderIdWithOrderAndUser(Long orderId)`: Truy vấn vận chuyển nạp kèm Order và User (`JOIN FETCH s.order o JOIN FETCH o.user`).
+
+---
+
+### 8.3 Cơ chế Phân trang & Sắp xếp (Pagination & Sorting)
+
+- Toàn bộ các API truy vấn danh sách bản ghi đều chấp nhận tham số `Pageable` (`org.springframework.data.domain.Pageable`) và trả về `Page<T>` (`org.springframework.data.domain.Page`).
+- Tham số phân trang mặc định: `page` (bắt đầu từ 0), `size` (mặc định 10 hoặc 20, giới hạn tối đa 100), `sort` (thuộc tính sắp xếp, ví dụ: `sort=createdAt,desc`).
+- Đối với các câu truy vấn `@Query` có `JOIN FETCH` trên quan hệ To-One (ví dụ `JOIN FETCH p.category` hoặc `JOIN FETCH o.user`), **bắt buộc phải khai báo thuộc tính `countQuery` riêng biệt** không chứa FETCH JOIN. Lý do: JPA không cho phép dùng FETCH JOIN trong câu lệnh đếm tổng số dòng `COUNT(...)`, việc tách rõ ràng giúp Spring Data JPA sinh câu lệnh phân trang chính xác tuyệt đối.
+
+### 8.4 Kỹ thuật Tìm kiếm & Lọc Dữ liệu (Search & Filtering)
+
+1. **Derived Query Methods**: Áp dụng cho các truy vấn điều kiện đơn giản, rõ ràng (`findByEmail`, `existsByName`, `findByCategoryId`).
+2. **JPQL Queries với Dynamic Parameters**:
+   - Áp dụng kỹ thuật truyền tham số linh hoạt với mệnh đề `(:param IS NULL OR field = :param)`.
+   - Giúp một phương thức Repository duy nhất có thể xử lý linh hoạt mọi tổ hợp lọc do người dùng chọn trên giao diện mà không cần ghép chuỗi SQL thủ công.
+3. **JPA Specification & `JpaSpecificationExecutor<T>`**:
+   - Được kế thừa sẵn tại `ProductRepository` nhằm sẵn sàng mở rộng các bộ lọc động phức tạp có nhiều tiêu chí tùy biến nâng cao trong tương lai.
+
+### 8.5 Chiến lược Giải quyết Triệt để Bài toán N+1 Query
+
+Lỗi N+1 Query xảy ra khi truy vấn nạp 1 thực thể cha nhưng sau đó Hibernate phải thực thi thêm N truy vấn phụ để nạp các thực thể liên quan qua quan hệ `FetchType.LAZY`. Hệ thống giải quyết triệt để vấn đề này bằng các kỹ thuật:
+
+1. **Sử dụng `JOIN FETCH` cho quan hệ To-One**:
+   - An toàn tuyệt đối với cơ chế phân trang (Pagination).
+   - Ví dụ: `SELECT p FROM Product p JOIN FETCH p.category c` giúp lấy sản phẩm và danh mục chỉ trong 1 truy vấn SQL duy nhất.
+2. **Sử dụng `@EntityGraph` cho quan hệ Collection (To-Many)**:
+   - Sử dụng cho truy vấn chi tiết một thực thể duy nhất (`findByIdWithDetails`), ví dụ: nạp cùng lúc Category, Images và Tags của một sản phẩm.
+   - `@EntityGraph(attributePaths = {"category", "images", "tags"})` thông báo cho Hibernate thực hiện LEFT OUTER JOIN nạp toàn bộ cấu trúc đồ thị thực thể trong 1 truy vấn.
+3. **Sử dụng `SELECT DISTINCT` khi JOIN FETCH với Collection**:
+   - Khi thực hiện `JOIN FETCH o.orderItems oi`, câu lệnh SQL sinh ra có thể nhân số dòng order tương ứng với số item con. Sử dụng `SELECT DISTINCT o` tại tầng JPQL đảm bảo Hibernate lọc trùng lặp và trả về danh sách đối tượng duy nhất.
+4. **Tránh `FetchType.EAGER` trong Entity**:
+   - 100% quan hệ `@ManyToOne`, `@OneToMany`, `@ManyToMany`, `@OneToOne` trong toàn bộ hệ thống đều được cấu hình tường minh là `FetchType.LAZY`. Tầng Service/Repository sẽ chủ động quyết định khi nào cần nạp dữ liệu liên kết thông qua các method tối ưu hóa nêu trên.
+

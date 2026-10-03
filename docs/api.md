@@ -96,15 +96,20 @@ Trong trường hợp lỗi do **Kiểm tra Hợp lệ Dữ liệu Đầu vào (
 }
 ```
 
-### Các Mã Lỗi Hệ thống Thường Gặp (Error Codes):
-- `VALIDATION_FAILED`: Dữ liệu đầu vào vi phạm validation.
-- `RESOURCE_NOT_FOUND`: Không tìm thấy tài nguyên yêu cầu.
-- `DUPLICATE_RESOURCE`: Dữ liệu đã tồn tại (trùng email, username).
-- `UNAUTHORIZED_ACCESS`: Chưa đăng nhập hoặc token không hợp lệ.
-- `ACCESS_DENIED`: Không đủ quyền hạn truy cập tài nguyên.
-- `INSUFFICIENT_STOCK`: Số lượng tồn kho không đủ để đáp ứng đơn hàng.
-- `INVALID_ORDER_STATE`: Chuyển trạng thái đơn hàng không hợp lệ.
-- `INTERNAL_SERVER_ERROR`: Lỗi hệ thống nội bộ máy chủ.
+### 3.3 Bảng Mã Lỗi Hệ thống & Ánh xạ HTTP Status (System Error Codes Mapping)
+
+Bảng ánh xạ chuẩn được định nghĩa tại enum `com.ecommerce.common.exception.ErrorCode`:
+
+| Mã Lỗi (Error Code) | HTTP Status Code | Thông Báo Mặc Định (Tiếng Việt) | Trường Hợp Sử Dụng |
+|---|---|---|---|
+| `VALIDATION_FAILED` | **400 Bad Request** | Dữ liệu đầu vào không hợp lệ | Vi phạm các ràng buộc Jakarta Validation (@Valid, @NotNull,...) |
+| `RESOURCE_NOT_FOUND` | **404 Not Found** | Không tìm thấy tài nguyên yêu cầu | Tra cứu ID không tồn tại trong database |
+| `DUPLICATE_RESOURCE` | **409 Conflict** | Dữ liệu đã tồn tại trong hệ thống | Trùng lặp dữ liệu duy nhất (email, username, category name) |
+| `BAD_REQUEST` | **400 Bad Request** | Yêu cầu không hợp lệ | Sai cú pháp JSON, sai kiểu dữ liệu tham số URL hoặc đối số không hợp lệ |
+| `UNAUTHORIZED` | **401 Unauthorized** | Chưa đăng nhập hoặc phiên làm việc đã hết hạn | Thiếu token, token hết hạn hoặc không hợp lệ |
+| `FORBIDDEN` | **403 Forbidden** | Bạn không có quyền truy cập tài nguyên này | Không đủ quyền hạn/vai trò truy cập endpoint bảo vệ |
+| `METHOD_NOT_ALLOWED` | **405 Method Not Allowed** | Phương thức HTTP không được hỗ trợ | Gọi sai phương thức HTTP (ví dụ: POST lên endpoint chỉ hỗ trợ GET) |
+| `INTERNAL_SERVER_ERROR` | **500 Internal Server Error** | Đã xảy ra lỗi hệ thống nội bộ, vui lòng thử lại sau | Lỗi runtime ngoài ý muốn, che giấu stack trace và chi tiết nhạy cảm |
 
 ---
 

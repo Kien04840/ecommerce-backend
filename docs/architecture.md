@@ -124,15 +124,15 @@ Mã nguồn được tổ chức hoàn chỉnh dưới package `com.ecommerce`:
 
 ```
 com.ecommerce
-├── Application.java               # Điểm khởi chạy Spring Boot (@EnableJpaAuditing)
+├── Application.java               # Điểm khởi chạy Spring Boot
 │
 ├── common                         # Module nền tảng dùng chung
-│   ├── config                     # Cấu hình Web, JPA, Redis, RabbitMQ
+│   ├── config                     # Cấu hình JpaAuditingConfig, Web, JPA, Redis, RabbitMQ
 │   ├── entity                     # BaseEntity (@MappedSuperclass với auditing)
-│   ├── exception                  # GlobalExceptionHandler, Exception nghiệp vụ, ErrorCode
-│   ├── response                   # ApiResponse, PagedResponse, ApiErrorResponse
+│   ├── exception                  # GlobalExceptionHandler, BusinessException, ResourceNotFoundException, ErrorCode
+│   ├── response                   # ApiResponse, PagedResponse, ApiErrorResponse, ValidationErrorDetail
 │   ├── security                   # Security Filter Chain, JWT filter, Handler từ chối truy cập
-│   └── util                       # Tiện ích ngày giờ, trích xuất thông tin bảo mật
+│   └── util                       # Tiện ích dùng chung, bảo mật
 │
 ├── auth                           # Module Xác thực & Phân quyền
 │   ├── controller                 # AuthController (register, login, refresh, logout)
@@ -152,7 +152,7 @@ com.ecommerce
 │   ├── controller                 # ProductController, CategoryController
 │   ├── dto                        # ProductRequest, ProductResponse, CategoryDto, FilterCriteria
 │   ├── entity                     # Product, Category, ProductImage, Tag, ProductStatus
-│   ├── repository                 # ProductRepository, CategoryRepository, TagRepository
+│   ├── repository                 # ProductRepository, CategoryRepository, ProductImageRepository, TagRepository
 │   ├── service                    # ProductService, CategoryService, ProductCacheService
 │   └── specification              # ProductSpecification (Xây dựng Predicate lọc động)
 │
@@ -168,12 +168,14 @@ com.ecommerce
 │   ├── dto                        # NotificationResponse
 │   ├── entity                     # Notification
 │   ├── producer                   # NotificationMessageProducer
+│   ├── repository                 # NotificationRepository
 │   └── service                    # NotificationService, EmailSenderService (mô phỏng)
 │
 └── shipping                       # Module Giao vận & Tích hợp Đơn vị Vận chuyển
     ├── client                     # ExternalShippingCarrierClient (HTTP Client / Mock)
     ├── dto                        # ShipmentResponse, CarrierWebhookPayload
     ├── entity                     # Shipment
+    ├── repository                 # ShipmentRepository
     └── service                    # ShippingService, ShippingSyncScheduler
 ```
 
