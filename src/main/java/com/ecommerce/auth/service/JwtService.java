@@ -5,6 +5,7 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -29,13 +30,17 @@ import java.util.function.Function;
 public class JwtService {
 
     private static final long DEFAULT_ACCESS_TOKEN_VALIDITY_SECONDS = 900L; // 15 phút
+    private static final String DEFAULT_ISSUER = "ecommerce-backend";
 
     private final SecretKey secretKey;
     private final long accessTokenValiditySeconds;
+    private final String issuer;
 
+    @Autowired
     public JwtService(
         @Value("${jwt.secret}") String secret,
-        @Value("${jwt.access-token-expiration:900}") long accessTokenValiditySeconds
+        @Value("${jwt.access-token-expiration:900}") long accessTokenValiditySeconds,
+        @Value("${jwt.issuer:ecommerce-backend}") String issuer
     ) {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException("Cấu hình 'jwt.secret' không được để trống. Vui lòng thiết lập biến môi trường JWT_SECRET.");
@@ -48,6 +53,11 @@ public class JwtService {
         this.accessTokenValiditySeconds = accessTokenValiditySeconds != 0
             ? accessTokenValiditySeconds
             : DEFAULT_ACCESS_TOKEN_VALIDITY_SECONDS;
+        this.issuer = (issuer != null && !issuer.isBlank()) ? issuer : DEFAULT_ISSUER;
+    }
+
+    public JwtService(String secret, long accessTokenValiditySeconds) {
+        this(secret, accessTokenValiditySeconds, DEFAULT_ISSUER);
     }
 
     /**
@@ -64,6 +74,7 @@ public class JwtService {
         Date expiration = new Date(nowMillis + (accessTokenValiditySeconds * 1000));
 
         return Jwts.builder()
+            .issuer(issuer)
             .subject(String.valueOf(userId))
             .claim("email", email)
             .claim("role", role)
@@ -71,6 +82,16 @@ public class JwtService {
             .expiration(expiration)
             .signWith(secretKey)
             .compact();
+    }
+
+    /**
+     * Trích xuất đơn vị phát hành (issuer) từ claims của JWT.
+     *
+     * @param token chuỗi JWT
+     * @return tên đơn vị phát hành
+     */
+    public String extractIssuer(String token) {
+        return extractClaim(token, Claims::getIssuer);
     }
 
     /**
@@ -115,7 +136,7 @@ public class JwtService {
     }
 
     /**
-     * Kiểm tra tính hợp lệ về mặt chữ ký số và thời hạn của JWT.
+     * Kiểm tra tính hợp lệ về mặt chữ ký số, đơn vị phát hành (issuer) và thời hạn của JWT.
      *
      * @param token chuỗi JWT cần kiểm tra
      * @return {@code true} nếu token hợp lệ và còn hạn; ngược lại {@code false}
@@ -156,6 +177,15 @@ public class JwtService {
     }
 
     /**
+     * Lấy tên đơn vị phát hành token được cấu hình.
+     *
+     * @return chuỗi tên đơn vị phát hành (issuer)
+     */
+    public String getIssuer() {
+        return issuer;
+    }
+
+    /**
      * Trích xuất claim bất kỳ từ token bằng hàm chuyển đổi.
      */
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
@@ -165,10 +195,12 @@ public class JwtService {
 
     /**
      * Giải mã và đọc toàn bộ Claims payload từ token đã ký.
+     * Xác thực cả chữ ký HMAC-SHA256 lẫn đơn vị phát hành token (issuer).
      */
     private Claims extractAllClaims(String token) {
         return Jwts.parser()
             .verifyWith(secretKey)
+            .requireIssuer(issuer)
             .build()
             .parseSignedClaims(token)
             .getPayload();

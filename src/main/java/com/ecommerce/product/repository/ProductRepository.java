@@ -142,5 +142,18 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
      */
     @Query("SELECT p.stockQuantity FROM Product p WHERE p.id = :id")
     Optional<Integer> findStockQuantityById(@Param("id") Long id);
+
+    /**
+     * Khóa dòng sản phẩm với cơ chế Pessimistic Write Lock (SELECT ... FOR UPDATE).
+     * <p>
+     * Dùng cho các tác vụ trừ hoặc cập nhật tồn kho đồng thời, ngăn chặn triệt để
+     * Race Condition (Lost Update) khi nhiều người dùng cùng mua một sản phẩm tại cùng một thời điểm.
+     *
+     * @param id mã định danh sản phẩm
+     * @return {@link Optional} chứa thực thể Product đã được khóa ghi
+     */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Product p WHERE p.id = :id")
+    Optional<Product> findByIdForUpdate(@Param("id") Long id);
 }
 

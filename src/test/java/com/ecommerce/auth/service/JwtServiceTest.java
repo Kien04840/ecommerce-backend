@@ -48,6 +48,7 @@ class JwtServiceTest {
             assertEquals(userId, jwtService.extractUserId(token));
             assertEquals(email, jwtService.extractEmail(token));
             assertEquals(role, jwtService.extractRole(token));
+            assertEquals("ecommerce-backend", jwtService.extractIssuer(token));
 
             // Kiểm tra thời hạn hết hạn trong tương lai
             Date expiration = jwtService.extractExpiration(token);
@@ -86,6 +87,15 @@ class JwtServiceTest {
         void validateToken_DifferentSecretKey_ReturnsFalse() {
             JwtService otherJwtService = new JwtService("anotherSecretKeyThatIsCompletelyDifferentAndAlsoLongEnough1234", 900L);
             String foreignToken = otherJwtService.generateAccessToken(1L, "user@example.com", "ROLE_CUSTOMER");
+
+            assertFalse(jwtService.validateToken(foreignToken));
+        }
+
+        @Test
+        @DisplayName("Token có issuer không khớp với cấu hình trả về false")
+        void validateToken_DifferentIssuer_ReturnsFalse() {
+            JwtService foreignIssuerService = new JwtService(TEST_SECRET, 900L, "untrusted-issuer");
+            String foreignToken = foreignIssuerService.generateAccessToken(1L, "user@example.com", "ROLE_CUSTOMER");
 
             assertFalse(jwtService.validateToken(foreignToken));
         }

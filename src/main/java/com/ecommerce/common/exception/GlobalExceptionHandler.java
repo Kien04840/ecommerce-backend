@@ -169,6 +169,40 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Xử lý ngoại lệ bị từ chối quyền truy cập (AccessDeniedException từ Method Security hoặc Controller).
+     *
+     * @param ex ngoại lệ {@link org.springframework.security.access.AccessDeniedException}
+     * @return phản hồi HTTP 403 Forbidden
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccessDeniedException(org.springframework.security.access.AccessDeniedException ex) {
+        log.warn("Từ chối quyền truy cập (Method Security): {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.of(
+            ErrorCode.FORBIDDEN.name(),
+            ErrorCode.FORBIDDEN.getDefaultMessage()
+        );
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
+    /**
+     * Xử lý ngoại lệ xác thực không thành công (AuthenticationException).
+     *
+     * @param ex ngoại lệ {@link org.springframework.security.core.AuthenticationException}
+     * @return phản hồi HTTP 401 Unauthorized
+     */
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<ApiErrorResponse> handleAuthenticationException(org.springframework.security.core.AuthenticationException ex) {
+        log.warn("Xác thực thất bại: {}", ex.getMessage());
+
+        ApiErrorResponse response = ApiErrorResponse.of(
+            ErrorCode.UNAUTHORIZED.name(),
+            ErrorCode.UNAUTHORIZED.getDefaultMessage()
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
+    /**
      * Xử lý bắt toàn bộ các lỗi ngoại lệ chưa được phân loại khác (Fallback Handler).
      * <p>
      * Luôn ghi log chi tiết mức độ ERROR cùng stack trace hoàn chỉnh phía server

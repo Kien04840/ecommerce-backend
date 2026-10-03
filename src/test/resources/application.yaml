@@ -20,6 +20,8 @@ spring:
 
 jwt:
   secret: "testOnlySecretKeyForJwtUnitTestingMustBeAtLeast256BitsLong1234567890Test"
+  issuer: "ecommerce-backend"
   access-token-expiration: 900
   refresh-token-expiration: 604800
+
 

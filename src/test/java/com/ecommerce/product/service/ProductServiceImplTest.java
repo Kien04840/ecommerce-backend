@@ -65,6 +65,9 @@ class ProductServiceImplTest {
     @Mock
     private TagRepository tagRepository;
 
+    @Mock
+    private jakarta.persistence.EntityManager entityManager;
+
     @InjectMocks
     private ProductServiceImpl productService;
 
@@ -519,7 +522,7 @@ class ProductServiceImplTest {
         @Test
         @DisplayName("Trừ tồn kho nguyên tử thành công")
         void deductStock_Success() {
-            when(productRepository.findById(100L)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testProduct));
 
             productService.deductStock(100L, 20);
 
@@ -531,7 +534,7 @@ class ProductServiceImplTest {
         @Test
         @DisplayName("Trừ hết sạch tồn kho tự động chuyển trạng thái sang OUT_OF_STOCK")
         void deductStock_UntilZero_ShouldChangeToOutOfStock() {
-            when(productRepository.findById(100L)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testProduct));
 
             productService.deductStock(100L, 50);
 
@@ -543,7 +546,7 @@ class ProductServiceImplTest {
         @Test
         @DisplayName("Trừ tồn kho thất bại và ném InsufficientStockException khi không đủ hàng")
         void deductStock_InsufficientStock_ShouldThrowException() {
-            when(productRepository.findById(100L)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testProduct));
 
             InsufficientStockException exception = assertThrows(InsufficientStockException.class,
                 () -> productService.deductStock(100L, 51));
@@ -556,7 +559,7 @@ class ProductServiceImplTest {
         @DisplayName("Trừ tồn kho thất bại khi sản phẩm không ở trạng thái ACTIVE")
         void deductStock_NotActive_ShouldThrowException() {
             testProduct.setStatus(ProductStatus.INACTIVE);
-            when(productRepository.findById(100L)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testProduct));
 
             BusinessException exception = assertThrows(BusinessException.class,
                 () -> productService.deductStock(100L, 5));
@@ -570,7 +573,7 @@ class ProductServiceImplTest {
             testProduct.setStatus(ProductStatus.OUT_OF_STOCK);
             testProduct.setStockQuantity(0);
 
-            when(productRepository.findById(100L)).thenReturn(Optional.of(testProduct));
+            when(productRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testProduct));
 
             productService.restoreStock(100L, 15);
 

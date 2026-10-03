@@ -57,6 +57,7 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final TagRepository tagRepository;
+    private final jakarta.persistence.EntityManager entityManager;
 
     @Override
     @Transactional
@@ -299,7 +300,11 @@ public class ProductServiceImpl implements ProductService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Số lượng cần trừ kho phải lớn hơn 0");
         }
 
-        Product product = productRepository.findById(productId)
+        // Xóa sạch First-Level Cache (Persistence Context) để đảm bảo câu lệnh Pessimistic Lock tải lại dữ liệu mới nhất từ database
+        entityManager.clear();
+
+        // Khóa dòng sản phẩm bằng Pessimistic Write Lock (SELECT ... FOR UPDATE) để chống Race Condition khi nhiều khách hàng cùng checkout
+        Product product = productRepository.findByIdForUpdate(productId)
             .orElseThrow(() -> new ResourceNotFoundException("Sản phẩm", "id", productId));
 
         if (product.getStatus() != ProductStatus.ACTIVE) {
@@ -336,7 +341,11 @@ public class ProductServiceImpl implements ProductService {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Số lượng cần hoàn trả phải lớn hơn 0");
         }
 
-        Product product = productRepository.findById(productId)
+        // Xóa sạch First-Level Cache trước khi khóa dòng hoàn trả kho
+        entityManager.clear();
+
+        // Khóa dòng sản phẩm bằng Pessimistic Write Lock khi hoàn trả tồn kho
+        Product product = productRepository.findByIdForUpdate(productId)
             .orElseThrow(() -> new ResourceNotFoundException("Sản phẩm", "id", productId));
 
         int newStock = product.getStockQuantity() + quantity;

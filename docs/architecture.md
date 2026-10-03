@@ -259,3 +259,65 @@ sequenceDiagram
    - Module `order` có thể phụ thuộc vào `product` và `user`.
    - Module `product` **tuyệt đối không** được phụ thuộc ngược lại vào `order`.
    - Tất cả các module đều phụ thuộc vào `common`. Module `common` không phụ thuộc vào bất kỳ module nào khác.
+
+---
+
+## 7. Kiến trúc Bảo mật & Phân quyền (Security Architecture)
+
+Hệ thống áp dụng mô hình bảo mật Stateless dựa trên **Spring Security 6** và **JWT (JSON Web Token)**:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                     Spring Security Filter Chain                       │
+│                                                                        │
+│   Client Request                                                       │
+│         │                                                              │
+│         ▼                                                              │
+│   ┌───────────────────────┐                                            │
+│   │ CorsFilter            │ Kiểm soát Origin, Methods, Headers         │
+│   └──────────┬────────────┘                                            │
+│              ▼                                                         │
+│   ┌───────────────────────┐                                            │
+│   │ CsrfFilter (Disabled) │ Tắt CSRF vì kiến trúc RESTful Stateless    │
+│   └──────────┬────────────┘                                            │
+│              ▼                                                         │
+│   ┌───────────────────────┐                                            │
+│   │ JwtAuthentication-    │ Bóc tách Bearer token, validate chữ ký,    │
+│   │ Filter                │ thiết lập UserPrincipal vào SecurityContext│
+│   └──────────┬────────────┘                                            │
+│              ▼                                                         │
+│   ┌───────────────────────┐                                            │
+│   │ AuthorizationFilter   │ Kiểm tra URL matchers & RBAC Roles         │
+│   └──────────┬────────────┘                                            │
+│              │                                                         │
+│              ├─► Thiếu/Sai token ──► JwtAuthenticationEntryPoint (401) │
+│              ├─► Không đủ quyền  ──► CustomAccessDeniedHandler (403)   │
+│              ▼                                                         │
+│   Dispatch tới Controller (Được bảo vệ bởi @PreAuthorize)              │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 7.1 Thành phần Cốt lõi
+1. **`UserPrincipal`**:
+   - Triển khai `UserDetails` của Spring Security, gói gọn danh tính: `id`, `username`, `email`, `password`, `enabled`, và danh sách `GrantedAuthority`.
+   - Cung cấp factory method `UserPrincipal.create(id, email, role)` phục vụ xác thực nhanh phi trạng thái từ JWT mà không truy vấn database mỗi request.
+   - Cung cấp factory method `UserPrincipal.fromUser(user)` phục vụ xác thực mật khẩu qua `DaoAuthenticationProvider`.
+2. **`JwtAuthenticationFilter`**:
+   - Kế thừa `OncePerRequestFilter`, chặn mọi HTTP request.
+   - Trích xuất Bearer token từ header `Authorization`, xác thực chữ ký HMAC-SHA256 và thời hạn với `JwtService`.
+   - Thiết lập `UsernamePasswordAuthenticationToken` vào `SecurityContextHolder`.
+3. **`JwtAuthenticationEntryPoint` (HTTP 401)**:
+   - Bắt các lỗi chưa xác thực (thiếu token, token sai chữ ký, token hết hạn).
+   - Trả về JSON `ApiErrorResponse` chuẩn hóa với `ErrorCode.UNAUTHORIZED` (mã HTTP 401), không trả HTML hay làm lộ stack trace.
+4. **`CustomAccessDeniedHandler` (HTTP 403)**:
+   - Bắt các lỗi từ chối truy cập do không đủ vai trò (ví dụ: `CUSTOMER` truy cập tài nguyên của `ADMIN`).
+   - Trả về JSON `ApiErrorResponse` chuẩn hóa với `ErrorCode.FORBIDDEN` (mã HTTP 403).
+5. **`SecurityUtils`**:
+   - Lớp tiện ích tĩnh hỗ trợ tầng Controller và Service lấy thông tin danh tính an toàn: `getCurrentUserId()`, `getCurrentUserEmail()`, `getCurrentUserRole()`, `getCurrentUserPrincipal()`, `isAuthenticated()`, `hasRole(role)`.
+6. **Bảo mật Phương thức (Method Security)**:
+   - Kích hoạt bằng `@EnableMethodSecurity`. Cho phép sử dụng `@PreAuthorize("hasRole('ADMIN')")`, `@PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")` ngay trên method Controller/Service.
+   - Bắt ngoại lệ `AccessDeniedException` và `AuthenticationException` tập trung tại `GlobalExceptionHandler` để đảm bảo định dạng JSON đồng nhất.
+7. **Phân định Rõ ranh giới Ủy quyền Sở hữu (Ownership Authorization)**:
+   - RBAC tại Filter Chain và `@PreAuthorize` đảm bảo đúng vai trò (Role-level).
+   - Quyền sở hữu tài nguyên (Resource Ownership - ví dụ: Khách chỉ xem/hủy đơn của chính mình) được thực thi nghiêm ngặt tại **Service Layer**, đối chiếu `userId` từ token với `order.getUserId()`.
+
